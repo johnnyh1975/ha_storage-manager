@@ -4,3 +4,5 @@
 
 ## 0.1.0 – 2026-11-13
 First release: panel (overview, database, backups, files), byte-based database analysis, per-entity retention tiers, recorder exclusions via packages, local backup rotation, file scanner, growth forecast, sensors, buttons, repair issues, actions, diagnostics and GUI Recorder import.
+
+Tested on Home Assistant 2026.10.4 with SQLite. Not yet field-tested: the Supervisor breakdown on Home Assistant OS, MariaDB/PostgreSQL and backup rotation with real backups. Feedback is welcome.
