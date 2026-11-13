@@ -9,11 +9,11 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import os
-import shutil
-from dataclasses import dataclass
 from pathlib import Path
+import shutil
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -107,7 +107,7 @@ def _size(path: Path) -> int:
 def _inside(base: Path, candidate: Path) -> bool:
     try:
         candidate.resolve().relative_to(base.resolve())
-    except (ValueError, OSError):
+    except ValueError, OSError:
         return False
     return candidate.resolve() != base.resolve()
 

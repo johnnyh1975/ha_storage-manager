@@ -6,12 +6,11 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+import shutil
+from typing import TYPE_CHECKING, Any, cast
 
-from homeassistant import data_entry_flow
-from homeassistant.components.repairs import RepairsFlow
+from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 
@@ -60,9 +59,7 @@ def async_update_issues(hass: HomeAssistant, coordinator: StorageCoordinator) ->
             DOMAIN,
             ISSUE_LOW_SPACE,
             is_fixable=True,
-            severity=ir.IssueSeverity.ERROR
-            if free_pct < 5
-            else ir.IssueSeverity.WARNING,
+            severity=ir.IssueSeverity.ERROR if free_pct < 5 else ir.IssueSeverity.WARNING,
             translation_key=ISSUE_LOW_SPACE,
             translation_placeholders={
                 "free": _gb(disk["free"]),
@@ -128,7 +125,7 @@ def async_clear_issues(hass: HomeAssistant) -> None:
 
 def _coordinator(hass: HomeAssistant) -> StorageCoordinator | None:
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
-    return entries[0].runtime_data if entries else None
+    return cast("StorageCoordinator", entries[0].runtime_data) if entries else None
 
 
 class CleanupRepairFlow(RepairsFlow):
@@ -139,9 +136,7 @@ class CleanupRepairFlow(RepairsFlow):
         self._preview: dict[str, Any] = {}
         self._targets: list[str] = []
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> data_entry_flow.FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> RepairsFlowResult:
         """Show preview."""
         coordinator = _coordinator(self.hass)
         if coordinator is None:
@@ -152,7 +147,7 @@ class CleanupRepairFlow(RepairsFlow):
 
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> data_entry_flow.FlowResult:
+    ) -> RepairsFlowResult:
         """Run cleanup after confirmation."""
         coordinator = _coordinator(self.hass)
         if coordinator is None:
@@ -180,22 +175,14 @@ class CleanupRepairFlow(RepairsFlow):
 class RestartRepairFlow(RepairsFlow):
     """Restart Home Assistant to apply recorder exclusions."""
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> data_entry_flow.FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> RepairsFlowResult:
         """Confirm restart."""
         if user_input is not None:
-            await self.hass.services.async_call(
-                "homeassistant", "restart", {}, blocking=False
-            )
+            await self.hass.services.async_call("homeassistant", "restart", {}, blocking=False)
             return self.async_create_entry(data={})
         coordinator = _coordinator(self.hass)
-        count = (
-            len(coordinator.recorder_status()["pending_restart"]) if coordinator else 0
-        )
-        return self.async_show_form(
-            step_id="init", description_placeholders={"count": str(count)}
-        )
+        count = len(coordinator.recorder_status()["pending_restart"]) if coordinator else 0
+        return self.async_show_form(step_id="init", description_placeholders={"count": str(count)})
 
 
 def setup_packages(config_dir: str) -> str:
@@ -210,9 +197,7 @@ def setup_packages(config_dir: str) -> str:
         return "exists"
     if "packages:" in content or HOMEASSISTANT_RE.search(content):
         return "manual"
-    shutil.copy2(
-        config_file, config_file.with_name("configuration.yaml.storage_manager.bak")
-    )
+    shutil.copy2(config_file, config_file.with_name("configuration.yaml.storage_manager.bak"))
     separator = "" if content.endswith("\n") else "\n"
     config_file.write_text(
         content + separator + "\n# Added by Storage Manager\n" + packages_snippet(),
@@ -225,9 +210,7 @@ def setup_packages(config_dir: str) -> str:
 class PackagesRepairFlow(RepairsFlow):
     """Set up packages so recorder exclusions can be written."""
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> data_entry_flow.FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> RepairsFlowResult:
         """Confirm adding the packages include."""
         if user_input is not None:
             result = await self.hass.async_add_executor_job(

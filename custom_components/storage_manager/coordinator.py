@@ -7,9 +7,10 @@ https://github.com/tonylofgren/aurora-smart-home
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
 import logging
 import time
-from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -66,9 +67,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     config_entry: ConfigEntry
 
-    def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, store: ManagerStore
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, store: ManagerStore) -> None:
         """Initialize."""
         self.options = {**DEFAULT_OPTIONS, **entry.options}
         super().__init__(
@@ -83,9 +82,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cache: dict[str, Any] = {}
         self._cache_at: dict[str, float] = {}
         self._last_sample = 0.0
-        self.packages = recorder_config.PackagesInfo(
-            mode=None, directory=None, file=None
-        )
+        self.packages = recorder_config.PackagesInfo(mode=None, directory=None, file=None)
         self.excluded_at_start: list[str] = []
         self.yaml_filters: dict[str, Any] = {}
         self.analysis_running = False
@@ -122,7 +119,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _stale(self, key: str, max_age: float) -> bool:
         return time.time() - self._cache_at.get(key, 0) > max_age
 
-    async def _cached(self, key: str, max_age: float, factory) -> Any:
+    async def _cached(self, key: str, max_age: float, factory: Callable[[], Awaitable[Any]]) -> Any:
         if key not in self._cache or self._stale(key, max_age):
             try:
                 self._cache[key] = await factory()
@@ -140,9 +137,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         hass = self.hass
         try:
-            usage = await hass.async_add_executor_job(
-                disk.local_disk_usage, hass.config.config_dir
-            )
+            usage = await hass.async_add_executor_job(disk.local_disk_usage, hass.config.config_dir)
         except OSError as err:
             raise UpdateFailed(f"Cannot read disk usage: {err}") from err
 
@@ -170,25 +165,18 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         analysis = self.store.data.analysis
         db_size = await database.async_database_size(hass, analysis)
-        if (
-            analysis is None
-            or now - float(analysis.get("generated_at", 0)) > ANALYSIS_MAX_AGE
-        ):
+        if analysis is None or now - float(analysis.get("generated_at", 0)) > ANALYSIS_MAX_AGE:
             self.async_schedule_analysis()
 
         plan = self.backup_plan(backup_list)
-        plan_deletable = sum(
-            p["local_size"] for p in plan if p["action"] == "delete_local"
-        )
+        plan_deletable = sum(p["local_size"] for p in plan if p["action"] == "delete_local")
         backup_deletable = plan_deletable if self.options[CONF_BACKUP_ROTATION] else 0
         file_safe = int((files_scan or {}).get("reclaimable_safe", 0))
         orphans = self.orphans()
         freelist = int((analysis or {}).get("freelist_bytes") or 0)
 
         fc = disk.forecast(self.store.data.samples, now)
-        percent_used = (
-            round(usage["used"] / usage["total"] * 100, 1) if usage["total"] else 0
-        )
+        percent_used = round(usage["used"] / usage["total"] * 100, 1) if usage["total"] else 0
 
         return {
             "updated_at": dt_util.utcnow().isoformat(),
@@ -212,16 +200,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "available": backup_list is not None,
                 "count": len((backup_list or {}).get("backups", [])),
                 "local_count": sum(
-                    1
-                    for b in (backup_list or {}).get("backups", [])
-                    if b["local_agents"]
+                    1 for b in (backup_list or {}).get("backups", []) if b["local_agents"]
                 ),
                 "local_total": (backup_list or {}).get("local_total", 0),
                 "rotation_enabled": bool(self.options[CONF_BACKUP_ROTATION]),
                 "deletable_bytes": plan_deletable,
-                "deletable_count": sum(
-                    1 for p in plan if p["action"] == "delete_local"
-                ),
+                "deletable_count": sum(1 for p in plan if p["action"] == "delete_local"),
                 "only_local_count": sum(1 for p in plan if p["reason"] == "only_local"),
             },
             "files": files_scan,
@@ -230,10 +214,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "files": file_safe,
                 "orphans": orphans["entity_bytes"],
                 "repack": freelist,
-                "total": backup_deletable
-                + file_safe
-                + orphans["entity_bytes"]
-                + freelist,
+                "total": backup_deletable + file_safe + orphans["entity_bytes"] + freelist,
             },
             "recorder": self.recorder_status(),
             "freed_total": self.store.data.freed_total,
@@ -375,9 +356,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 total += int(state_part * max(share, 0))
         return total
 
-    async def async_run_retention(
-        self, *, include_drop: bool, include_daily: bool
-    ) -> None:
+    async def async_run_retention(self, *, include_drop: bool, include_daily: bool) -> None:
         """Enforce retention tiers (called by the scheduler)."""
         groups: dict[int, list[str]] = {}
         for entity_id, tier in self.store.data.retention.items():
@@ -409,9 +388,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         orphan_entities = sorted(e for e in entities if e not in known)
         stats = analysis.get("statistics") or {}
         orphan_stats = sorted(
-            s
-            for s, info in stats.items()
-            if info.get("source") == "recorder" and s not in known
+            s for s, info in stats.items() if info.get("source") == "recorder" and s not in known
         )
         return {
             "entities": orphan_entities,
@@ -426,13 +403,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # backups
     # ------------------------------------------------------------------
 
-    def backup_plan(
-        self, backup_list: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
+    def backup_plan(self, backup_list: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Rotation plan for local backup copies."""
-        backup_list = (
-            backup_list if backup_list is not None else self._cache.get("backups")
-        )
+        backup_list = backup_list if backup_list is not None else self._cache.get("backups")
         if not backup_list:
             return []
         return backup_mod.plan_rotation(
@@ -467,14 +440,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for entity_id in ids:
             entry = ent_reg.async_get(entity_id)
             state = hass.states.get(entity_id)
-            device = (
-                dev_reg.async_get(entry.device_id)
-                if entry and entry.device_id
-                else None
-            )
-            area_id = (entry.area_id if entry else None) or (
-                device.area_id if device else None
-            )
+            device = dev_reg.async_get(entry.device_id) if entry and entry.device_id else None
+            area_id = (entry.area_id if entry else None) or (device.area_id if device else None)
             area = area_reg.async_get_area(area_id) if area_id else None
             info = stats.get(entity_id) or {}
             name = None
@@ -496,15 +463,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "rows_24h": info.get("rows_24h", 0),
                     "stat_rows": info.get("stat_rows", 0),
                     "est_bytes": info.get("est_bytes", 0),
-                    "est_state_bytes": info.get(
-                        "est_state_bytes", info.get("est_bytes", 0)
-                    ),
+                    "est_state_bytes": info.get("est_state_bytes", info.get("est_bytes", 0)),
                     "oldest": info.get("oldest"),
                     "tier": data.retention.get(entity_id, TIER_DEFAULT),
                     "excluded": excluded_by_us,
                     "recorded": recorded,
-                    "excluded_by_yaml": (not recorded)
-                    and entity_id not in self.excluded_at_start,
+                    "excluded_by_yaml": (not recorded) and entity_id not in self.excluded_at_start,
                     "orphan": entity_id not in known,
                 }
             )
@@ -651,21 +615,15 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             preview["backups"] = {
                 "bytes": sum(p["local_size"] for p in plan),
                 "items": [
-                    {"name": p["name"], "date": p["date"], "bytes": p["local_size"]}
-                    for p in plan
+                    {"name": p["name"], "date": p["date"], "bytes": p["local_size"]} for p in plan
                 ],
             }
         if "files" in targets:
-            hogs = [
-                h
-                for h in (data["files"] or {}).get("hogs", [])
-                if h["safety"] == "safe"
-            ]
+            hogs = [h for h in (data["files"] or {}).get("hogs", []) if h["safety"] == "safe"]
             preview["files"] = {
                 "bytes": sum(h["size_bytes"] for h in hogs),
                 "items": [
-                    {"name": h["key"], "bytes": h["size_bytes"], "paths": h["paths"]}
-                    for h in hogs
+                    {"name": h["key"], "bytes": h["size_bytes"], "paths": h["paths"]} for h in hogs
                 ],
             }
         if "orphans" in targets:
@@ -697,8 +655,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """VACUUM needs roughly the database size as free space."""
         if not self.data:
             return False
-        size = self.data["database"]["size"] or 0
-        return self.data["disk"]["free"] > size * 1.1
+        size = float(self.data["database"]["size"] or 0)
+        return bool(self.data["disk"]["free"] > size * 1.1)
 
     async def async_clean(
         self,
@@ -711,9 +669,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Execute cleanup targets. Returns freed bytes per target."""
         unknown = set(targets) - set(ALL_CLEAN_TARGETS)
         if unknown:
-            raise HomeAssistantError(
-                f"Unknown cleanup targets: {', '.join(sorted(unknown))}"
-            )
+            raise HomeAssistantError(f"Unknown cleanup targets: {', '.join(sorted(unknown))}")
         if self._lock.locked():
             raise HomeAssistantError("Another cleanup is running")
         async with self._lock:
@@ -749,9 +705,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ids = entity_ids or orphans["entities"]
                     await database.async_purge_entities(self.hass, ids, 0)
                     await database.async_wait_idle(self.hass)
-                    results["orphans"] = (
-                        orphans["entity_bytes"] if not entity_ids else 0
-                    )
+                    results["orphans"] = orphans["entity_bytes"] if not entity_ids else 0
                     self._drop_from_analysis(ids)
                 if "statistics" in targets:
                     self._set_busy("statistics")
@@ -772,9 +726,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         size_after = await database.async_database_size(
                             self.hass, self.store.data.analysis
                         )
-                        results["repack"] = max(
-                            size_before - (size_after or size_before), 0
-                        )
+                        results["repack"] = max(size_before - (size_after or size_before), 0)
                         if self.store.data.analysis is not None:
                             self.store.data.analysis["freelist_bytes"] = 0
                 if "docker" in targets:
@@ -821,11 +773,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 info = entities.get(entity_id)
                 if not info or not info.get("rows"):
                     continue
-                kept = (
-                    0
-                    if keep_days == 0
-                    else min(info["rows_24h"] * keep_days, info["rows"])
-                )
+                kept = 0 if keep_days == 0 else min(info["rows_24h"] * keep_days, info["rows"])
                 share = kept / info["rows"]
                 state_bytes = info.get("est_state_bytes", info.get("est_bytes", 0))
                 stat_bytes = info.get("est_bytes", 0) - state_bytes

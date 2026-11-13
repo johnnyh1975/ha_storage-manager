@@ -6,7 +6,13 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+from typing import Any
+
+from homeassistant.core import HomeAssistant
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.storage_manager.const import DOMAIN
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
@@ -15,3 +21,21 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 def setup_hass(recorder_mock, enable_custom_integrations):
     """Recorder first (it must exist before hass), then custom integrations."""
     return recorder_mock
+
+
+@pytest.fixture
+def prepared_hass(setup_hass, hass: HomeAssistant, tmp_path) -> HomeAssistant:
+    """A hass instance with recorder and a private config directory."""
+    hass.config.config_dir = str(tmp_path)
+    return hass
+
+
+async def setup_entry(
+    hass: HomeAssistant, options: dict[str, Any] | None = None
+) -> MockConfigEntry:
+    """Add and set up a Storage Manager entry."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Storage Manager", data={}, options=options or {})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry

@@ -6,12 +6,7 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-from typing import Any
-
-try:  # Home Assistant moved from voluptuous to probatio in 2026
-    import probatio as vol
-except ImportError:  # pragma: no cover
-    import voluptuous as vol
+from typing import Any, cast
 
 from homeassistant.core import (
     HomeAssistant,
@@ -22,6 +17,7 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+import probatio as vol
 
 from .const import ALL_TIERS, DOMAIN
 from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
@@ -50,10 +46,8 @@ RETENTION_SCHEMA = vol.Schema(
 def _coordinator(hass: HomeAssistant) -> StorageCoordinator:
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
     if not entries:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN, translation_key="not_loaded"
-        )
-    return entries[0].runtime_data
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="not_loaded")
+    return cast(StorageCoordinator, entries[0].runtime_data)
 
 
 @callback
@@ -71,9 +65,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _analyze(call: ServiceCall) -> ServiceResponse:
         coordinator = _coordinator(hass)
         result = await coordinator.async_run_analysis()
-        top = sorted(
-            result["entities"].items(), key=lambda kv: kv[1]["est_bytes"], reverse=True
-        )[:20]
+        top = sorted(result["entities"].items(), key=lambda kv: kv[1]["est_bytes"], reverse=True)[
+            :20
+        ]
         return {
             "generated_at": result["generated_at"],
             "duration_s": result["duration_s"],

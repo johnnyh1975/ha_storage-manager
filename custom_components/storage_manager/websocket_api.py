@@ -6,18 +6,25 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
-try:  # Home Assistant moved from voluptuous to probatio in 2026
-    import probatio as vol
-except ImportError:  # pragma: no cover
-    import voluptuous as vol
-
-from homeassistant.components import websocket_api
+from homeassistant.components.websocket_api import async_register_command
+from homeassistant.components.websocket_api.connection import ActiveConnection
+from homeassistant.components.websocket_api.decorators import (
+    async_response,
+    require_admin,
+    websocket_command,
+)
+from homeassistant.components.websocket_api.messages import (
+    BASE_COMMAND_MESSAGE_SCHEMA,
+    event_message,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.storage import Store
+import probatio as vol
 
 from . import files
 from .const import ALL_TIERS, DOMAIN, SIGNAL_UPDATED
@@ -25,20 +32,23 @@ from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
 
 ENTITY_ID = vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"))
 
+type Msg = dict[str, Any]
+type Command = Callable[[HomeAssistant, StorageCoordinator, Msg], Awaitable[Any]]
+
 
 def _coordinator(hass: HomeAssistant) -> StorageCoordinator:
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
     if not entries:
         raise HomeAssistantError("Storage Manager is not loaded")
-    return entries[0].runtime_data
+    return cast(StorageCoordinator, entries[0].runtime_data)
 
 
-def _wrap(func):
+def _wrap(
+    func: Command,
+) -> Callable[[HomeAssistant, ActiveConnection, Msg], Awaitable[None]]:
     """Translate errors into websocket errors."""
 
-    async def handler(
-        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-    ) -> None:
+    async def handler(hass: HomeAssistant, connection: ActiveConnection, msg: Msg) -> None:
         try:
             result = await func(hass, _coordinator(hass), msg)
         except HomeAssistantError as err:
@@ -49,89 +59,119 @@ def _wrap(func):
     return handler
 
 
-def _register(hass: HomeAssistant, schema: dict, func) -> None:
-    handler = websocket_api.require_admin(websocket_api.async_response(_wrap(func)))
-    websocket_api.async_register_command(
+def _register(hass: HomeAssistant, schema: dict[Any, Any], func: Command) -> None:
+    handler = require_admin(async_response(_wrap(func)))
+    command = schema["type"]
+    extra = {k: v for k, v in schema.items() if k != "type"}
+    async_register_command(
         hass,
-        schema["type"],
+        command,
         handler,
-        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
-            {
-                vol.Required("type"): schema["type"],
-                **{k: v for k, v in schema.items() if k != "type"},
-            }
-        ),
+        BASE_COMMAND_MESSAGE_SCHEMA.extend({vol.Required("type"): command, **extra}),
     )
+
+
+async def _overview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return {
+        "data": c.data,
+        "recommendations": c.recommendations(),
+        "history": list(reversed(c.store.data.history[-20:])),
+        "options": c.options,
+        "gui_recorder": bool(hass.config_entries.async_entries("gui_recorder")),
+        "gui_recorder_imported": "gui_recorder" in c.store.data.migrated_from,
+    }
+
+
+async def _entities(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return c.entity_rows()
+
+
+async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_apply_recorder_changes(
+        retention=msg.get("retention") or {},
+        excluded=msg.get("excluded") or {},
+        purge_now=msg.get("purge_now", True),
+    )
+
+
+async def _analyze(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    result = await c.async_run_analysis()
+    return {"generated_at": result["generated_at"], "duration_s": result["duration_s"]}
+
+
+async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_preview(msg["targets"])
+
+
+async def _clean(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_clean(
+        msg["targets"],
+        hog_keys=msg.get("hog_keys"),
+        statistic_ids=msg.get("statistic_ids"),
+        entity_ids=msg.get("entity_ids"),
+    )
+
+
+async def _backups(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    c.invalidate("backups")
+    await c.async_refresh()
+    return {"plan": c.backup_plan(), "summary": c.data["backups"]}
+
+
+async def _orphans(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return c.orphans()
+
+
+async def _refresh(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    c.invalidate()
+    await c.async_refresh()
+    return {"ok": True}
+
+
+async def _import_gui_recorder(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    store: Store[dict[str, Any]] = Store(hass, 1, "gui_recorder.data")
+    stored = await store.async_load() or {}
+    entities_list = sorted({str(e) for e in stored.get("excluded_entities") or []})
+    result = await c.async_apply_recorder_changes(
+        excluded={e: True for e in entities_list}, purge_now=False
+    )
+    if "gui_recorder" not in c.store.data.migrated_from:
+        c.store.data.migrated_from.append("gui_recorder")
+        c.store.schedule_save()
+    return {"imported": len(entities_list), **result}
+
+
+@require_admin
+@websocket_command({vol.Required("type"): f"{DOMAIN}/subscribe"})
+@callback
+def _subscribe(hass: HomeAssistant, connection: ActiveConnection, msg: Msg) -> None:
+    """Push a message whenever data or busy state changes."""
+
+    @callback
+    def _forward() -> None:
+        connection.send_message(event_message(msg["id"], {"updated": True}))
+
+    unsub_signal = async_dispatcher_connect(hass, SIGNAL_UPDATED, _forward)
+    unsub_coordinator: Callable[[], None] | None = None
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    if entries:
+        unsub_coordinator = entries[0].runtime_data.async_add_listener(_forward)
+
+    @callback
+    def _unsub() -> None:
+        unsub_signal()
+        if unsub_coordinator:
+            unsub_coordinator()
+
+    connection.subscriptions[msg["id"]] = _unsub
+    connection.send_result(msg["id"])
 
 
 @callback
 def async_setup(hass: HomeAssistant) -> None:
     """Register commands."""
-
-    async def overview(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        return {
-            "data": c.data,
-            "recommendations": c.recommendations(),
-            "history": list(reversed(c.store.data.history[-20:])),
-            "options": c.options,
-            "gui_recorder": bool(hass.config_entries.async_entries("gui_recorder")),
-            "gui_recorder_imported": "gui_recorder" in c.store.data.migrated_from,
-        }
-
-    async def entities(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        return c.entity_rows()
-
-    async def apply(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        return await c.async_apply_recorder_changes(
-            retention=msg.get("retention") or {},
-            excluded=msg.get("excluded") or {},
-            purge_now=msg.get("purge_now", True),
-        )
-
-    async def analyze(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        result = await c.async_run_analysis()
-        return {
-            "generated_at": result["generated_at"],
-            "duration_s": result["duration_s"],
-        }
-
-    async def preview(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        return await c.async_preview(msg["targets"])
-
-    async def clean(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        return await c.async_clean(
-            msg["targets"],
-            hog_keys=msg.get("hog_keys"),
-            statistic_ids=msg.get("statistic_ids"),
-            entity_ids=msg.get("entity_ids"),
-        )
-
-    async def backups(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        c.invalidate("backups")
-        await c.async_refresh()
-        return {"plan": c.backup_plan(), "summary": c.data["backups"]}
-
-    async def orphans(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        return c.orphans()
-
-    async def refresh(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        c.invalidate()
-        await c.async_refresh()
-        return {"ok": True}
-
-    async def import_gui_recorder(hass, c: StorageCoordinator, msg) -> dict[str, Any]:
-        stored = await Store(hass, 1, "gui_recorder.data").async_load() or {}
-        entities_list = sorted({str(e) for e in stored.get("excluded_entities") or []})
-        result = await c.async_apply_recorder_changes(
-            excluded={e: True for e in entities_list}, purge_now=False
-        )
-        if "gui_recorder" not in c.store.data.migrated_from:
-            c.store.data.migrated_from.append("gui_recorder")
-            c.store.schedule_save()
-        return {"imported": len(entities_list), **result}
-
-    _register(hass, {"type": f"{DOMAIN}/overview"}, overview)
-    _register(hass, {"type": f"{DOMAIN}/entities"}, entities)
+    _register(hass, {"type": f"{DOMAIN}/overview"}, _overview)
+    _register(hass, {"type": f"{DOMAIN}/entities"}, _entities)
     _register(
         hass,
         {
@@ -140,16 +180,13 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("excluded"): {ENTITY_ID: bool},
             vol.Optional("purge_now", default=True): bool,
         },
-        apply,
+        _apply,
     )
-    _register(hass, {"type": f"{DOMAIN}/analyze"}, analyze)
+    _register(hass, {"type": f"{DOMAIN}/analyze"}, _analyze)
     _register(
         hass,
-        {
-            "type": f"{DOMAIN}/preview",
-            vol.Required("targets"): [vol.In(ALL_CLEAN_TARGETS)],
-        },
-        preview,
+        {"type": f"{DOMAIN}/preview", vol.Required("targets"): [vol.In(ALL_CLEAN_TARGETS)]},
+        _preview,
     )
     _register(
         hass,
@@ -160,40 +197,10 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("statistic_ids"): [str],
             vol.Optional("entity_ids"): [ENTITY_ID],
         },
-        clean,
+        _clean,
     )
-    _register(hass, {"type": f"{DOMAIN}/backups"}, backups)
-    _register(hass, {"type": f"{DOMAIN}/orphans"}, orphans)
-    _register(hass, {"type": f"{DOMAIN}/refresh"}, refresh)
-    _register(hass, {"type": f"{DOMAIN}/import_gui_recorder"}, import_gui_recorder)
-
-    @websocket_api.require_admin
-    @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/subscribe"})
-    @callback
-    def subscribe(
-        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-    ) -> None:
-        """Push a message whenever data or busy state changes."""
-
-        @callback
-        def _forward() -> None:
-            connection.send_message(
-                websocket_api.event_message(msg["id"], {"updated": True})
-            )
-
-        unsub_signal = async_dispatcher_connect(hass, SIGNAL_UPDATED, _forward)
-        unsub_coordinator = None
-        entries = hass.config_entries.async_loaded_entries(DOMAIN)
-        if entries:
-            unsub_coordinator = entries[0].runtime_data.async_add_listener(_forward)
-
-        @callback
-        def _unsub() -> None:
-            unsub_signal()
-            if unsub_coordinator:
-                unsub_coordinator()
-
-        connection.subscriptions[msg["id"]] = _unsub
-        connection.send_result(msg["id"])
-
-    websocket_api.async_register_command(hass, subscribe)
+    _register(hass, {"type": f"{DOMAIN}/backups"}, _backups)
+    _register(hass, {"type": f"{DOMAIN}/orphans"}, _orphans)
+    _register(hass, {"type": f"{DOMAIN}/refresh"}, _refresh)
+    _register(hass, {"type": f"{DOMAIN}/import_gui_recorder"}, _import_gui_recorder)
+    async_register_command(hass, _subscribe)

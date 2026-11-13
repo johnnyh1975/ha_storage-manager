@@ -10,8 +10,9 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Callable, Hashable
 from datetime import datetime
+import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -88,8 +89,8 @@ def plan_rotation(
     if local:
         keep_reason[local[0]["backup_id"]] = "newest"
 
-    def bucket_keep(key_fn, limit: int, label: str) -> None:
-        seen: list[Any] = []
+    def bucket_keep(key_fn: Callable[[datetime], Hashable], limit: int, label: str) -> None:
+        seen: list[Hashable] = []
         for item in local:
             when = _parse(item["date"])
             if when is None:

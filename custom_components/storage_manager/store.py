@@ -57,9 +57,7 @@ class ManagerData:
         return cls(
             retention=retention,
             excluded=sorted({str(e) for e in data.get("excluded") or []}),
-            excluded_written=sorted(
-                {str(e) for e in data.get("excluded_written") or []}
-            ),
+            excluded_written=sorted({str(e) for e in data.get("excluded_written") or []}),
             samples=[list(s) for s in data.get("samples") or [] if len(s) == 3],
             history=list(data.get("history") or [])[-HISTORY_MAX:],
             freed_total=int(data.get("freed_total") or 0),
@@ -86,9 +84,7 @@ class ManagerStore:
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize."""
-        self._store: Store[dict[str, Any]] = Store(
-            hass, STORAGE_VERSION, STORAGE_KEY, private=True
-        )
+        self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY, private=True)
         self.data = ManagerData()
 
     async def async_load(self) -> ManagerData:
@@ -114,9 +110,7 @@ class ManagerStore:
         self.data.samples.append([now, float(used), float(total)])
         self.schedule_save()
 
-    def log(
-        self, action: str, freed: int, details: dict[str, Any] | None = None
-    ) -> None:
+    def log(self, action: str, freed: int, details: dict[str, Any] | None = None) -> None:
         """Record a cleanup action."""
         self.data.history.append(
             {

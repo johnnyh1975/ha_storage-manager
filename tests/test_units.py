@@ -55,8 +55,7 @@ def test_forecast() -> None:
     gib, mib = 1024**3, 1024**2
     now = 1_800_000_000.0
     samples = [
-        [now - h * 3600, 5 * gib - h * (100 * mib / 24), 10 * gib]
-        for h in range(48, -1, -1)
+        [now - h * 3600, 5 * gib - h * (100 * mib / 24), 10 * gib] for h in range(48, -1, -1)
     ]
     fc = disk.forecast(samples, now)
     assert abs(fc["growth_per_day"] - 100 * mib) < mib
@@ -107,9 +106,7 @@ def test_packages_detection_and_render(tmp_path: Path) -> None:
     recorder_config.write_package(info, ["sensor.b", "sensor.a"])
     data = yaml.safe_load(info.file.read_text())
     assert data == {
-        "storage_manager": {
-            "recorder": {"exclude": {"entities": ["sensor.a", "sensor.b"]}}
-        }
+        "storage_manager": {"recorder": {"exclude": {"entities": ["sensor.a", "sensor.b"]}}}
     }
     assert recorder_config.read_package(info) == ["sensor.a", "sensor.b"]
     recorder_config.write_package(info, [])
@@ -122,3 +119,36 @@ def test_packages_outside_config_rejected(tmp_path: Path) -> None:
         "homeassistant:\n  packages: !include_dir_named ../elsewhere\n"
     )
     assert recorder_config.detect_packages(str(tmp_path)).available is False
+
+
+def test_package_helpers_edge_cases(tmp_path: Path) -> None:
+    """Empty renders, missing dirs, broken YAML and odd filter blocks."""
+    assert recorder_config.render_package([], None).endswith("{}\n")
+    missing = recorder_config.PackagesInfo(mode=None, directory=None, file=None)
+    try:
+        recorder_config.write_package(missing, ["sensor.a"])
+    except FileNotFoundError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected FileNotFoundError")
+    assert recorder_config.read_package(missing) == []
+    broken = tmp_path / "storage_manager.yaml"
+    broken.write_text("recorder: [unclosed")
+    info = recorder_config.PackagesInfo(mode="include_dir_named", directory=tmp_path, file=broken)
+    assert recorder_config.read_package(info) == []
+    summary = recorder_config.summarize_filters(
+        {"include": ["not", "a", "dict"], "exclude": {"domains": ["sun"]}}
+    )
+    assert summary["exclude"] == {"domains": ["sun"]}
+    assert "include" not in summary
+    assert recorder_config.detect_packages(str(tmp_path / "nowhere")).available is False
+
+
+def test_scan_skips_known_and_internal(tmp_path: Path) -> None:
+    """Large files in skipped folders, the database and hog paths are not listed."""
+    for rel in ("backups/b.tar", "home-assistant_v2.db", "esphome/.esphome/build/n/fw.bin"):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("wb") as fh:
+            fh.truncate(files.LARGE_FILE_MIN + 1)
+    assert files.scan(str(tmp_path))["large_files"] == []

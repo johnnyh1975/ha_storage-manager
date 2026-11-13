@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.recorder.common import (
     async_wait_recording_done,
@@ -46,16 +46,12 @@ async def _record(hass: HomeAssistant) -> None:
 
 async def test_config_flow(hass: HomeAssistant, setup_hass) -> None:
     """User step creates a single entry."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     assert result["type"] == "form"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     assert result["type"] == "abort"
 
 
@@ -96,13 +92,9 @@ async def test_analysis_and_ws(hass: HomeAssistant, setup_hass, hass_ws_client) 
     rows = {r["entity_id"]: r for r in msg["result"]["rows"]}
     assert rows["sensor.noisy"]["rows"] == 40
     assert rows["sensor.gone"]["orphan"] is True
-    assert (
-        msg["result"]["rows"][0]["est_bytes"] >= msg["result"]["rows"][-1]["est_bytes"]
-    )
+    assert msg["result"]["rows"][0]["est_bytes"] >= msg["result"]["rows"][-1]["est_bytes"]
 
-    await client.send_json(
-        {"id": 3, "type": f"{DOMAIN}/preview", "targets": ["orphans", "repack"]}
-    )
+    await client.send_json({"id": 3, "type": f"{DOMAIN}/preview", "targets": ["orphans", "repack"]})
     msg = await client.receive_json()
     assert msg["success"], msg
     assert "sensor.gone" in msg["result"]["orphans"]["items"]
@@ -115,9 +107,7 @@ async def test_analysis_and_ws(hass: HomeAssistant, setup_hass, hass_ws_client) 
     assert "sensor.gone" not in result["entities"]
 
 
-async def test_retention_purges(
-    hass: HomeAssistant, setup_hass, hass_ws_client
-) -> None:
+async def test_retention_purges(hass: HomeAssistant, setup_hass, hass_ws_client) -> None:
     """Setting 'keep nothing' purges an entity's history immediately."""
     entry = await _setup(hass)
     await _record(hass)
@@ -141,9 +131,7 @@ async def test_retention_purges(
     assert entry.runtime_data.store.data.retention == {}
 
 
-async def test_exclusion_without_packages(
-    hass: HomeAssistant, setup_hass, hass_ws_client
-) -> None:
+async def test_exclusion_without_packages(hass: HomeAssistant, setup_hass, hass_ws_client) -> None:
     """Excluding without packages raises the packages repair issue."""
     entry = await _setup(hass)
     client = await hass_ws_client(hass)
@@ -164,9 +152,7 @@ async def test_exclusion_without_packages(
     assert entry.runtime_data.store.data.excluded == ["sensor.quiet"]
 
 
-async def test_exclusion_with_packages(
-    hass: HomeAssistant, setup_hass, hass_ws_client
-) -> None:
+async def test_exclusion_with_packages(hass: HomeAssistant, setup_hass, hass_ws_client) -> None:
     """With packages the file is written and a restart is requested."""
     config_dir = Path(hass.config.config_dir)
     (config_dir / "configuration.yaml").write_text(
@@ -255,9 +241,7 @@ async def test_backup_integration(hass: HomeAssistant, hass_ws_client) -> None:
     assert msg["result"]["plan"] == []
 
 
-async def test_import_gui_recorder(
-    hass: HomeAssistant, hass_ws_client, hass_storage
-) -> None:
+async def test_import_gui_recorder(hass: HomeAssistant, hass_ws_client, hass_storage) -> None:
     """Exclusions stored by GUI Recorder are imported."""
     hass_storage["gui_recorder.data"] = {
         "version": 1,

@@ -1,7 +1,7 @@
 {
   "name": "storage-manager-panel",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "build": "esbuild src/storage-manager-panel.js --bundle --format=esm --minify --target=es2021 --legal-comments=none --outfile=../custom_components/storage_manager/frontend/storage-manager-panel.js"

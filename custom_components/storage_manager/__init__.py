@@ -6,6 +6,7 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -56,20 +57,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> b
     _update_issues()
     entry.async_on_unload(coordinator.async_add_listener(_update_issues))
 
-    async def _hourly(_now) -> None:
+    async def _hourly(_now: datetime) -> None:
         await coordinator.async_run_retention(include_drop=True, include_daily=False)
 
-    async def _daily(_now) -> None:
+    async def _daily(_now: datetime) -> None:
         await coordinator.async_run_retention(include_drop=False, include_daily=True)
 
-    async def _analysis(_now) -> None:
+    async def _analysis(_now: datetime) -> None:
         coordinator.async_schedule_analysis()
 
     # Hourly for "keep nothing", daily after HA's own nightly purge (04:12)
     entry.async_on_unload(async_track_time_change(hass, _hourly, minute=17, second=0))
-    entry.async_on_unload(
-        async_track_time_change(hass, _daily, hour=4, minute=37, second=0)
-    )
+    entry.async_on_unload(async_track_time_change(hass, _daily, hour=4, minute=37, second=0))
     entry.async_on_unload(
         async_track_time_change(
             hass,

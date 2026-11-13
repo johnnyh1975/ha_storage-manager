@@ -26,6 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import StorageConfigEntry
+from .coordinator import StorageCoordinator
 from .entity import StorageEntity
 
 
@@ -98,9 +99,7 @@ SENSORS: tuple[StorageSensorDescription, ...] = (
     StorageSensorDescription(
         key="local_backups_size",
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda d: (
-            d["backups"]["local_total"] if d["backups"]["available"] else None
-        ),
+        value_fn=lambda d: d["backups"]["local_total"] if d["backups"]["available"] else None,
         attrs_fn=lambda d: {
             "local_backups": d["backups"]["local_count"],
             "only_local": d["backups"]["only_local_count"],
@@ -131,9 +130,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up sensors."""
     coordinator = entry.runtime_data
-    async_add_entities(
-        StorageSensor(coordinator, description) for description in SENSORS
-    )
+    async_add_entities(StorageSensor(coordinator, description) for description in SENSORS)
 
 
 class StorageSensor(StorageEntity, SensorEntity):
@@ -157,7 +154,9 @@ class StorageSensor(StorageEntity, SensorEntity):
         }
     )
 
-    def __init__(self, coordinator, description: StorageSensorDescription) -> None:
+    def __init__(
+        self, coordinator: StorageCoordinator, description: StorageSensorDescription
+    ) -> None:
         """Initialize."""
         super().__init__(coordinator, description.key)
         self.entity_description = description

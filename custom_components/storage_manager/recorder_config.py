@@ -11,15 +11,15 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-import logging
-import re
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+import re
 from typing import Any
 
-import yaml
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.recorder import get_instance
+import yaml
 
 from .const import PACKAGE_FILE, PACKAGE_NAME
 
@@ -113,7 +113,7 @@ def read_package(info: PackagesInfo) -> list[str]:
         return []
     try:
         data = yaml.safe_load(info.file.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return []
     if PACKAGE_NAME in data:
         data = data[PACKAGE_NAME] or {}

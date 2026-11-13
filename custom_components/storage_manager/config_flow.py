@@ -8,11 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-try:  # Home Assistant moved from voluptuous to probatio in 2026
-    import probatio as vol
-except ImportError:  # pragma: no cover
-    import voluptuous as vol
-
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -21,6 +16,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+import probatio as vol
 
 from .const import (
     CONF_ANALYSIS_HOUR,
@@ -38,47 +34,36 @@ from .const import (
 )
 
 
-def _number(
-    minimum: int, maximum: int, unit: str | None = None
-) -> selector.NumberSelector:
-    config: dict[str, Any] = {
-        "min": minimum,
-        "max": maximum,
-        "step": 1,
-        "mode": selector.NumberSelectorMode.BOX,
-    }
+def _number(minimum: int, maximum: int, unit: str | None = None) -> selector.NumberSelector:
+    config = selector.NumberSelectorConfig(
+        min=minimum, max=maximum, step=1, mode=selector.NumberSelectorMode.BOX
+    )
     if unit:
         config["unit_of_measurement"] = unit
-    return selector.NumberSelector(selector.NumberSelectorConfig(**config))
+    return selector.NumberSelector(config)
 
 
 def _schema(options: dict[str, Any]) -> vol.Schema:
     o = {**DEFAULT_OPTIONS, **options}
     return vol.Schema(
         {
-            vol.Required(
-                CONF_LOW_SPACE_PERCENT, default=o[CONF_LOW_SPACE_PERCENT]
-            ): _number(1, 50, "%"),
-            vol.Required(CONF_FORECAST_DAYS, default=o[CONF_FORECAST_DAYS]): _number(
-                1, 90, "d"
+            vol.Required(CONF_LOW_SPACE_PERCENT, default=o[CONF_LOW_SPACE_PERCENT]): _number(
+                1, 50, "%"
             ),
+            vol.Required(CONF_FORECAST_DAYS, default=o[CONF_FORECAST_DAYS]): _number(1, 90, "d"),
             vol.Required(
                 CONF_BACKUP_ROTATION, default=o[CONF_BACKUP_ROTATION]
             ): selector.BooleanSelector(),
             vol.Required(CONF_KEEP_DAILY, default=o[CONF_KEEP_DAILY]): _number(1, 60),
             vol.Required(CONF_KEEP_WEEKLY, default=o[CONF_KEEP_WEEKLY]): _number(0, 52),
-            vol.Required(CONF_KEEP_MONTHLY, default=o[CONF_KEEP_MONTHLY]): _number(
-                0, 36
-            ),
+            vol.Required(CONF_KEEP_MONTHLY, default=o[CONF_KEEP_MONTHLY]): _number(0, 36),
             vol.Required(
                 CONF_REQUIRE_OFFSITE, default=o[CONF_REQUIRE_OFFSITE]
             ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_UPDATE_INTERVAL, default=o[CONF_UPDATE_INTERVAL]
-            ): _number(5, 240, "min"),
-            vol.Required(CONF_ANALYSIS_HOUR, default=o[CONF_ANALYSIS_HOUR]): _number(
-                0, 23, "h"
+            vol.Required(CONF_UPDATE_INTERVAL, default=o[CONF_UPDATE_INTERVAL]): _number(
+                5, 240, "min"
             ),
+            vol.Required(CONF_ANALYSIS_HOUR, default=o[CONF_ANALYSIS_HOUR]): _number(0, 23, "h"),
         }
     )
 
@@ -95,16 +80,12 @@ class StorageManagerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Confirm setup."""
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
         if user_input is not None:
-            return self.async_create_entry(
-                title=NAME, data={}, options=dict(DEFAULT_OPTIONS)
-            )
+            return self.async_create_entry(title=NAME, data={}, options=dict(DEFAULT_OPTIONS))
         return self.async_show_form(step_id="user")
 
     @staticmethod
@@ -117,9 +98,7 @@ class StorageManagerConfigFlow(ConfigFlow, domain=DOMAIN):
 class StorageManagerOptionsFlow(OptionsFlow):
     """Thresholds, backup rotation and schedule."""
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage options."""
         if user_input is not None:
             return self.async_create_entry(data=_clean(user_input))

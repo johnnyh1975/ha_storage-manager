@@ -6,11 +6,11 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 DOMAIN: Final = "storage_manager"
 NAME: Final = "Storage Manager"
-VERSION: Final = "0.1.1"
+VERSION: Final = "0.1.2"
 
 STORAGE_KEY: Final = f"{DOMAIN}.data"
 STORAGE_VERSION: Final = 1
@@ -32,7 +32,7 @@ CONF_KEEP_MONTHLY: Final = "keep_monthly"
 CONF_REQUIRE_OFFSITE: Final = "require_offsite"
 CONF_ANALYSIS_HOUR: Final = "analysis_hour"
 
-DEFAULT_OPTIONS: Final[dict] = {
+DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_UPDATE_INTERVAL: 15,
     CONF_LOW_SPACE_PERCENT: 15,
     CONF_FORECAST_DAYS: 14,

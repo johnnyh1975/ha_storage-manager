@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from pathlib import Path
+import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -72,7 +72,11 @@ Q_EVENTS = text(
 )
 
 Q_TABLE_SIZES = {
-    "sqlite": text("SELECT name, SUM(pgsize) FROM dbstat GROUP BY name"),
+    # dbstat reports tables and indexes; sqlite_master maps each to its table
+    "sqlite": text(
+        "SELECT m.tbl_name, SUM(d.pgsize) FROM dbstat d "
+        "JOIN sqlite_master m ON d.name = m.name GROUP BY m.tbl_name"
+    ),
     "mysql": text(
         "SELECT table_name, data_length + index_length FROM information_schema.tables "
         "WHERE table_schema = DATABASE()"
@@ -82,27 +86,13 @@ Q_TABLE_SIZES = {
     ),
 }
 
-TABLES = (
-    "states",
-    "states_meta",
-    "state_attributes",
-    "events",
-    "event_data",
-    "event_types",
-    "statistics",
-    "statistics_short_term",
-    "statistics_meta",
-    "recorder_runs",
-    "schema_changes",
-    "statistics_runs",
-    "migration_changes",
-)
-
 
 def _dialect(hass: HomeAssistant) -> str:
     instance = get_instance(hass)
     dialect = instance.dialect_name
-    return str(dialect.value if hasattr(dialect, "value") else dialect or "sqlite")
+    if dialect is None:
+        return "sqlite"
+    return str(getattr(dialect, "value", dialect))
 
 
 def sqlite_path(hass: HomeAssistant) -> Path | None:
@@ -145,15 +135,6 @@ def _table_sizes(session: Session, dialect: str) -> dict[str, int]:
         _LOGGER.debug("Table sizes not available on %s: %s", dialect, err)
         session.rollback()
         return {}
-    # SQLite reports indexes separately; attribute them to their tables.
-    if dialect == "sqlite":
-        merged: dict[str, int] = {}
-        for name, size in sizes.items():
-            owner = next(
-                (t for t in sorted(TABLES, key=len, reverse=True) if t in name), name
-            )
-            merged[owner] = merged.get(owner, 0) + size
-        sizes = merged
     return sizes
 
 
@@ -163,9 +144,7 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
     since = time.time() - 86400
     entities: dict[str, dict[str, Any]] = {}
     with session_scope(hass=hass, read_only=True) as session:
-        for entity_id, cnt, cnt24, state_len, oldest in session.execute(
-            Q_STATES, {"since": since}
-        ):
+        for entity_id, cnt, cnt24, state_len, oldest in session.execute(Q_STATES, {"since": since}):
             entities[entity_id] = {
                 "rows": int(cnt or 0),
                 "rows_24h": int(cnt24 or 0),
@@ -191,16 +170,11 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
             for statistic_id, source, cnt in session.execute(
                 text(Q_STATS.text.format(table=table))
             ):
-                entry = statistics.setdefault(
-                    statistic_id, {"source": source, "rows": 0}
-                )
+                entry = statistics.setdefault(statistic_id, {"source": source, "rows": 0})
                 entry["rows"] += int(cnt or 0)
 
         events = sorted(
-            (
-                {"event_type": et, "rows": int(c or 0)}
-                for et, c in session.execute(Q_EVENTS)
-            ),
+            ({"event_type": et, "rows": int(c or 0)} for et, c in session.execute(Q_EVENTS)),
             key=lambda e: e["rows"],
             reverse=True,
         )
@@ -209,9 +183,7 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
         if dialect == "sqlite":
             try:
                 page_size = int(session.execute(text("PRAGMA page_size")).scalar() or 0)
-                free_pages = int(
-                    session.execute(text("PRAGMA freelist_count")).scalar() or 0
-                )
+                free_pages = int(session.execute(text("PRAGMA freelist_count")).scalar() or 0)
                 freelist_bytes = page_size * free_pages
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("PRAGMA freelist_count failed: %s", err)
@@ -222,30 +194,18 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
 
     # Calibrate byte estimates with real table sizes when available
     states_bytes = table_sizes.get("states", 0) + table_sizes.get("states_meta", 0)
-    state_row = (
-        states_bytes / total_rows if states_bytes and total_rows else DEFAULT_STATE_ROW
-    )
+    state_row = states_bytes / total_rows if states_bytes and total_rows else DEFAULT_STATE_ROW
     attr_table = table_sizes.get("state_attributes", 0)
     attr_factor = (
-        attr_table / total_attr_len
-        if attr_table and total_attr_len
-        else DEFAULT_ATTR_FACTOR
+        attr_table / total_attr_len if attr_table and total_attr_len else DEFAULT_ATTR_FACTOR
     )
-    stat_bytes = table_sizes.get("statistics", 0) + table_sizes.get(
-        "statistics_short_term", 0
-    )
-    stat_row = (
-        stat_bytes / total_stat_rows
-        if stat_bytes and total_stat_rows
-        else DEFAULT_STAT_ROW
-    )
+    stat_bytes = table_sizes.get("statistics", 0) + table_sizes.get("statistics_short_term", 0)
+    stat_row = stat_bytes / total_stat_rows if stat_bytes and total_stat_rows else DEFAULT_STAT_ROW
 
     for entity_id, info in entities.items():
         stat = statistics.get(entity_id)
         info["stat_rows"] = stat["rows"] if stat else 0
-        info["est_state_bytes"] = int(
-            info["rows"] * state_row + info["attr_len"] * attr_factor
-        )
+        info["est_state_bytes"] = int(info["rows"] * state_row + info["attr_len"] * attr_factor)
         info["est_bytes"] = info["est_state_bytes"] + int(info["stat_rows"] * stat_row)
 
     return {
@@ -280,7 +240,7 @@ async def async_analyze(hass: HomeAssistant) -> dict[str, Any]:
     return result
 
 
-async def async_database_size(hass: HomeAssistant, analysis: dict | None) -> int | None:
+async def async_database_size(hass: HomeAssistant, analysis: dict[str, Any] | None) -> int | None:
     """Best known size of the recorder database in bytes."""
     path = sqlite_path(hass)
     if path is not None:
@@ -290,9 +250,7 @@ async def async_database_size(hass: HomeAssistant, analysis: dict | None) -> int
     return None
 
 
-async def async_purge_entities(
-    hass: HomeAssistant, entity_ids: list[str], keep_days: int
-) -> None:
+async def async_purge_entities(hass: HomeAssistant, entity_ids: list[str], keep_days: int) -> None:
     """Purge recorded data of entities older than keep_days (0 = everything)."""
     if not entity_ids:
         return
