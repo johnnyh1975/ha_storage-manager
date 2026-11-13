@@ -31,7 +31,10 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install test dependencies
-        run: pip install pytest-homeassistant-custom-component
+        run: |
+          pip install pytest-homeassistant-custom-component
+          # the frontend package matching the installed Home Assistant version
+          pip install $(python -c "import json, homeassistant.components.frontend as f, os; print(' '.join(json.load(open(os.path.join(os.path.dirname(f.__file__), 'manifest.json')))['requirements']))")
       - name: Run tests
         run: pytest -q
   panel:

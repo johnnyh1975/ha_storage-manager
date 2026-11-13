@@ -168,6 +168,8 @@ class CleanupRepairFlow(RepairsFlow):
         return self.async_show_form(
             step_id="confirm",
             description_placeholders={
+                "free": _human(coordinator.data["disk"]["free"]),
+                "percent": f"{100 - coordinator.data['disk']['percent_used']:.0f}",
                 "backups": _human(self._preview.get("backups", {}).get("bytes", 0)),
                 "files": _human(self._preview.get("files", {}).get("bytes", 0)),
                 "panel": f"/{PANEL_URL_PATH}",
@@ -187,7 +189,13 @@ class RestartRepairFlow(RepairsFlow):
                 "homeassistant", "restart", {}, blocking=False
             )
             return self.async_create_entry(data={})
-        return self.async_show_form(step_id="init")
+        coordinator = _coordinator(self.hass)
+        count = (
+            len(coordinator.recorder_status()["pending_restart"]) if coordinator else 0
+        )
+        return self.async_show_form(
+            step_id="init", description_placeholders={"count": str(count)}
+        )
 
 
 def setup_packages(config_dir: str) -> str:

@@ -81,24 +81,22 @@
         "step": {
           "confirm": {
             "title": "Sicher aufräumen",
-            "description": "Das entfernt lokale Backup-Kopien außerhalb deiner Rotation ({backups}) und Dateien, die sich neu erzeugen, z. B. Caches und alte Logs ({files}).\n\nFür die Datenbank öffne das [Storage-Manager-Panel]({panel})."
+            "description": "{free} frei ({percent} % des Speichers).\n\nDas entfernt lokale Backup-Kopien außerhalb deiner Rotation ({backups}) und Dateien, die sich neu erzeugen, z. B. Caches und alte Logs ({files}).\n\nFür die Datenbank öffne das [Storage-Manager-Panel]({panel})."
           }
         },
         "abort": {
           "not_loaded": "Storage Manager ist nicht geladen.",
           "nothing_to_clean": "Gerade lässt sich nichts gefahrlos entfernen. Öffne das [Storage-Manager-Panel]({panel}), um die Aufbewahrung der größten Datenbank-Entitäten zu verkürzen."
         }
-      },
-      "description": "Nur noch {free} GB ({percent} %) frei. Etwa {reclaimable} GB lassen sich freigeben."
+      }
     },
     "disk_full_forecast": {
       "title": "Der Speicher ist bald voll",
-      "description": "Beim aktuellen Wachstum von {growth} MB pro Tag ist der Speicher in etwa {days} Tagen voll. Etwa {reclaimable} GB lassen sich freigeben.",
       "fix_flow": {
         "step": {
           "confirm": {
             "title": "Sicher aufräumen",
-            "description": "Das entfernt lokale Backup-Kopien außerhalb deiner Rotation ({backups}) und Dateien, die sich neu erzeugen ({files}).\n\nFür die Datenbank öffne das [Storage-Manager-Panel]({panel})."
+            "description": "{free} frei ({percent} % des Speichers).\n\nDas entfernt lokale Backup-Kopien außerhalb deiner Rotation ({backups}) und Dateien, die sich neu erzeugen ({files}).\n\nFür die Datenbank öffne das [Storage-Manager-Panel]({panel})."
           }
         },
         "abort": {
@@ -116,8 +114,7 @@
             "description": "Der Recorder liest seine Filter nur beim Start. {count} geänderte Entitäten wirken erst nach einem Neustart."
           }
         }
-      },
-      "description": "{count} Entitäten geändert."
+      }
     },
     "packages_missing": {
       "title": "Packages einrichten, um Entitäten nicht aufzuzeichnen",
@@ -131,8 +128,7 @@
         "abort": {
           "manual": "Deine configuration.yaml hat bereits einen homeassistant:-Abschnitt. Füge diese Zeile dort selbst ein und starte neu:\n\n```yaml\n{snippet}```"
         }
-      },
-      "description": "Ausschlüsse sind gespeichert, können aber noch nicht geschrieben werden."
+      }
     }
   },
   "exceptions": {

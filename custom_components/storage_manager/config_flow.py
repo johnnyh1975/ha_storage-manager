@@ -38,7 +38,9 @@ from .const import (
 )
 
 
-def _number(minimum: int, maximum: int, unit: str | None = None) -> selector.NumberSelector:
+def _number(
+    minimum: int, maximum: int, unit: str | None = None
+) -> selector.NumberSelector:
     config: dict[str, Any] = {
         "min": minimum,
         "max": maximum,

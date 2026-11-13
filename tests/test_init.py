@@ -255,7 +255,9 @@ async def test_backup_integration(hass: HomeAssistant, hass_ws_client) -> None:
     assert msg["result"]["plan"] == []
 
 
-async def test_import_gui_recorder(hass: HomeAssistant, hass_ws_client, hass_storage) -> None:
+async def test_import_gui_recorder(
+    hass: HomeAssistant, hass_ws_client, hass_storage
+) -> None:
     """Exclusions stored by GUI Recorder are imported."""
     hass_storage["gui_recorder.data"] = {
         "version": 1,
@@ -279,7 +281,9 @@ async def test_safe_targets_respect_rotation_option(hass: HomeAssistant) -> None
     """Backups are only part of the safe cleanup when rotation is enabled."""
     entry = await _setup(hass)
     assert entry.runtime_data.safe_targets() == ["files"]
-    hass.config_entries.async_update_entry(entry, options={**entry.options, "backup_rotation": True})
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "backup_rotation": True}
+    )
     await hass.async_block_till_done()
     assert entry.runtime_data.safe_targets() == ["backups", "files"]
 
@@ -307,3 +311,19 @@ async def test_options_flow(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert entry.options["keep_daily"] == 5
     assert isinstance(entry.options["keep_daily"], int)
+
+
+async def test_restart_repair_flow(hass: HomeAssistant, hass_client) -> None:
+    """The restart fix flow renders with its placeholder."""
+    from homeassistant.components.repairs import DOMAIN as REPAIRS_DOMAIN
+    from homeassistant.setup import async_setup_component
+
+    from custom_components.storage_manager.repairs import async_create_fix_flow
+
+    assert await async_setup_component(hass, REPAIRS_DOMAIN, {})
+    await _setup(hass)
+    flow = await async_create_fix_flow(hass, "restart_required", None)
+    flow.hass = hass
+    result = await flow.async_step_init()
+    assert result["type"] == "form"
+    assert result["description_placeholders"] == {"count": "0"}

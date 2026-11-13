@@ -10,7 +10,7 @@ from typing import Final
 
 DOMAIN: Final = "storage_manager"
 NAME: Final = "Storage Manager"
-VERSION: Final = "0.1.0"
+VERSION: Final = "0.1.1"
 
 STORAGE_KEY: Final = f"{DOMAIN}.data"
 STORAGE_VERSION: Final = 1

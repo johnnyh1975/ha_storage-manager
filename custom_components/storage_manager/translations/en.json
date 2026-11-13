@@ -81,24 +81,22 @@
         "step": {
           "confirm": {
             "title": "Safe cleanup",
-            "description": "This removes local backup copies outside your rotation ({backups}) and regenerable files such as caches and old logs ({files}).\n\nFor database cleanup open the [Storage Manager panel]({panel})."
+            "description": "{free} free ({percent} % of the disk).\n\nThis removes local backup copies outside your rotation ({backups}) and regenerable files such as caches and old logs ({files}).\n\nFor database cleanup open the [Storage Manager panel]({panel})."
           }
         },
         "abort": {
           "not_loaded": "Storage Manager is not loaded.",
           "nothing_to_clean": "Nothing can be removed safely right now. Open the [Storage Manager panel]({panel}) to shorten the retention of the largest database entities."
         }
-      },
-      "description": "Only {free} GB ({percent} %) are free. About {reclaimable} GB can be reclaimed."
+      }
     },
     "disk_full_forecast": {
       "title": "Disk will be full soon",
-      "description": "At the current growth of {growth} MB per day the disk is full in about {days} days. About {reclaimable} GB can be reclaimed.",
       "fix_flow": {
         "step": {
           "confirm": {
             "title": "Safe cleanup",
-            "description": "This removes local backup copies outside your rotation ({backups}) and regenerable files ({files}).\n\nFor database cleanup open the [Storage Manager panel]({panel})."
+            "description": "{free} free ({percent} % of the disk).\n\nThis removes local backup copies outside your rotation ({backups}) and regenerable files ({files}).\n\nFor database cleanup open the [Storage Manager panel]({panel})."
           }
         },
         "abort": {
@@ -116,8 +114,7 @@
             "description": "The recorder reads its filters only at startup. {count} changed entities take effect after a restart."
           }
         }
-      },
-      "description": "{count} entities changed."
+      }
     },
     "packages_missing": {
       "title": "Set up packages to stop recording entities",
@@ -131,8 +128,7 @@
         "abort": {
           "manual": "Your configuration.yaml already has a homeassistant: section. Add this line under it yourself and restart:\n\n```yaml\n{snippet}```"
         }
-      },
-      "description": "Exclusions are saved but cannot be written yet."
+      }
     }
   },
   "exceptions": {
