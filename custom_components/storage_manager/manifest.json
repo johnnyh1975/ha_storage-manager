@@ -1,0 +1,15 @@
+{
+  "domain": "storage_manager",
+  "name": "Storage Manager",
+  "after_dependencies": ["backup", "hassio", "tts"],
+  "codeowners": ["@johnnyh1975"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "recorder", "websocket_api"],
+  "documentation": "https://github.com/johnnyh1975/ha_storage-manager",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/johnnyh1975/ha_storage-manager/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

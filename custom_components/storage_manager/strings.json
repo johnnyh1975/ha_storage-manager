@@ -1,0 +1,202 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Storage Manager",
+        "description": "Adds a sidebar panel that shows what uses your disk and lets you reclaim space safely. Nothing is deleted without your confirmation."
+      }
+    },
+    "abort": {
+      "already_configured": "Storage Manager is already set up.",
+      "single_instance_allowed": "Storage Manager is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Storage Manager options",
+        "data": {
+          "low_space_percent": "Warn below free space",
+          "forecast_warning_days": "Warn when full within",
+          "backup_rotation": "Rotate local backups",
+          "keep_daily": "Keep daily",
+          "keep_weekly": "Keep weekly",
+          "keep_monthly": "Keep monthly",
+          "require_offsite": "Only delete if stored elsewhere",
+          "update_interval": "Update interval",
+          "analysis_hour": "Daily database analysis at"
+        },
+        "data_description": {
+          "low_space_percent": "Create a repair issue when free space drops below this share.",
+          "forecast_warning_days": "Days until the disk is full according to the growth trend.",
+          "backup_rotation": "Delete local backup copies that fall outside the daily/weekly/monthly schedule when you run a cleanup.",
+          "require_offsite": "Keep a local copy unless the same backup exists on another location (NAS, cloud)."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "disk_free": {
+        "name": "Free disk space"
+      },
+      "disk_used_percent": {
+        "name": "Disk used"
+      },
+      "days_until_full": {
+        "name": "Days until full"
+      },
+      "growth_per_day": {
+        "name": "Growth per day"
+      },
+      "database_size": {
+        "name": "Database size"
+      },
+      "local_backups_size": {
+        "name": "Local backups"
+      },
+      "reclaimable": {
+        "name": "Reclaimable"
+      },
+      "freed_total": {
+        "name": "Freed in total"
+      }
+    },
+    "button": {
+      "safe_cleanup": {
+        "name": "Safe cleanup"
+      },
+      "analyze_database": {
+        "name": "Analyze database"
+      },
+      "repack_database": {
+        "name": "Repack database"
+      }
+    }
+  },
+  "issues": {
+    "low_space": {
+      "title": "Disk space is running low",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Safe cleanup",
+            "description": "This removes local backup copies outside your rotation ({backups}) and regenerable files such as caches and old logs ({files}).\n\nFor database cleanup open the [Storage Manager panel]({panel})."
+          }
+        },
+        "abort": {
+          "not_loaded": "Storage Manager is not loaded.",
+          "nothing_to_clean": "Nothing can be removed safely right now. Open the [Storage Manager panel]({panel}) to shorten the retention of the largest database entities."
+        }
+      },
+      "description": "Only {free} GB ({percent} %) are free. About {reclaimable} GB can be reclaimed."
+    },
+    "disk_full_forecast": {
+      "title": "Disk will be full soon",
+      "description": "At the current growth of {growth} MB per day the disk is full in about {days} days. About {reclaimable} GB can be reclaimed.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Safe cleanup",
+            "description": "This removes local backup copies outside your rotation ({backups}) and regenerable files ({files}).\n\nFor database cleanup open the [Storage Manager panel]({panel})."
+          }
+        },
+        "abort": {
+          "not_loaded": "Storage Manager is not loaded.",
+          "nothing_to_clean": "Nothing can be removed safely right now. Open the [Storage Manager panel]({panel}) to shorten the retention of the largest database entities."
+        }
+      }
+    },
+    "restart_required": {
+      "title": "Restart to apply recorder exclusions",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Restart Home Assistant",
+            "description": "The recorder reads its filters only at startup. {count} changed entities take effect after a restart."
+          }
+        }
+      },
+      "description": "{count} entities changed."
+    },
+    "packages_missing": {
+      "title": "Set up packages to stop recording entities",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Set up packages",
+            "description": "Storage Manager writes recorder exclusions into a package file. Your configuration.yaml has no packages folder yet. Confirm to append these lines (a backup copy of configuration.yaml is created first):\n\n```yaml\n{snippet}```"
+          }
+        },
+        "abort": {
+          "manual": "Your configuration.yaml already has a homeassistant: section. Add this line under it yourself and restart:\n\n```yaml\n{snippet}```"
+        }
+      },
+      "description": "Exclusions are saved but cannot be written yet."
+    }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "Storage Manager is not loaded."
+    }
+  },
+  "selector": {
+    "cleanup_targets": {
+      "options": {
+        "backups": "Local backups (rotation)",
+        "files": "Caches and old logs",
+        "orphans": "History of deleted entities",
+        "statistics": "Statistics of deleted entities",
+        "repack": "Repack database",
+        "docker": "Unused Docker images (Supervisor)"
+      }
+    },
+    "retention_tier": {
+      "options": {
+        "default": "Default",
+        "7": "7 days",
+        "3": "3 days",
+        "1": "1 day",
+        "drop": "Last hour only"
+      }
+    }
+  },
+  "services": {
+    "cleanup": {
+      "name": "Clean up",
+      "description": "Reclaim disk space. Defaults to the safe targets.",
+      "fields": {
+        "targets": {
+          "name": "Targets",
+          "description": "What to clean."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Only report what would be freed."
+        }
+      }
+    },
+    "analyze_database": {
+      "name": "Analyze database",
+      "description": "Estimate the size of every recorded entity."
+    },
+    "set_retention": {
+      "name": "Set retention",
+      "description": "Keep the history of entities shorter than the global setting.",
+      "fields": {
+        "entity_id": {
+          "name": "Entities",
+          "description": "Entities to change."
+        },
+        "tier": {
+          "name": "Retention",
+          "description": "How long history is kept."
+        },
+        "purge_now": {
+          "name": "Purge now",
+          "description": "Delete older history immediately instead of at the next scheduled run."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Storage Manager",
+        "description": "Fügt ein Seitenleisten-Panel hinzu, das zeigt, was Speicher belegt, und ihn sicher freigibt. Ohne deine Bestätigung wird nichts gelöscht."
+      }
+    },
+    "abort": {
+      "already_configured": "Storage Manager ist bereits eingerichtet.",
+      "single_instance_allowed": "Storage Manager ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Storage Manager Optionen",
+        "data": {
+          "low_space_percent": "Warnen unter freiem Speicher",
+          "forecast_warning_days": "Warnen, wenn voll in weniger als",
+          "backup_rotation": "Lokale Backups rotieren",
+          "keep_daily": "Tägliche behalten",
+          "keep_weekly": "Wöchentliche behalten",
+          "keep_monthly": "Monatliche behalten",
+          "require_offsite": "Nur löschen, wenn extern vorhanden",
+          "update_interval": "Aktualisierungsintervall",
+          "analysis_hour": "Tägliche Datenbankanalyse um"
+        },
+        "data_description": {
+          "low_space_percent": "Reparaturmeldung, wenn der freie Speicher unter diesen Anteil fällt.",
+          "forecast_warning_days": "Tage bis der Speicher laut Wachstumstrend voll ist.",
+          "backup_rotation": "Lokale Backup-Kopien außerhalb des Tages-/Wochen-/Monatsschemas beim Aufräumen löschen.",
+          "require_offsite": "Lokale Kopie behalten, solange dasselbe Backup nicht an einem anderen Ort (NAS, Cloud) liegt."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "disk_free": {
+        "name": "Freier Speicher"
+      },
+      "disk_used_percent": {
+        "name": "Speicher belegt"
+      },
+      "days_until_full": {
+        "name": "Tage bis voll"
+      },
+      "growth_per_day": {
+        "name": "Wachstum pro Tag"
+      },
+      "database_size": {
+        "name": "Datenbankgröße"
+      },
+      "local_backups_size": {
+        "name": "Lokale Backups"
+      },
+      "reclaimable": {
+        "name": "Freigebbar"
+      },
+      "freed_total": {
+        "name": "Insgesamt freigegeben"
+      }
+    },
+    "button": {
+      "safe_cleanup": {
+        "name": "Sicher aufräumen"
+      },
+      "analyze_database": {
+        "name": "Datenbank analysieren"
+      },
+      "repack_database": {
+        "name": "Datenbank neu packen"
+      }
+    }
+  },
+  "issues": {
+    "low_space": {
+      "title": "Der Speicher wird knapp",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Sicher aufräumen",
+            "description": "Das entfernt lokale Backup-Kopien außerhalb deiner Rotation ({backups}) und Dateien, die sich neu erzeugen, z. B. Caches und alte Logs ({files}).\n\nFür die Datenbank öffne das [Storage-Manager-Panel]({panel})."
+          }
+        },
+        "abort": {
+          "not_loaded": "Storage Manager ist nicht geladen.",
+          "nothing_to_clean": "Gerade lässt sich nichts gefahrlos entfernen. Öffne das [Storage-Manager-Panel]({panel}), um die Aufbewahrung der größten Datenbank-Entitäten zu verkürzen."
+        }
+      },
+      "description": "Nur noch {free} GB ({percent} %) frei. Etwa {reclaimable} GB lassen sich freigeben."
+    },
+    "disk_full_forecast": {
+      "title": "Der Speicher ist bald voll",
+      "description": "Beim aktuellen Wachstum von {growth} MB pro Tag ist der Speicher in etwa {days} Tagen voll. Etwa {reclaimable} GB lassen sich freigeben.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Sicher aufräumen",
+            "description": "Das entfernt lokale Backup-Kopien außerhalb deiner Rotation ({backups}) und Dateien, die sich neu erzeugen ({files}).\n\nFür die Datenbank öffne das [Storage-Manager-Panel]({panel})."
+          }
+        },
+        "abort": {
+          "not_loaded": "Storage Manager ist nicht geladen.",
+          "nothing_to_clean": "Gerade lässt sich nichts gefahrlos entfernen. Öffne das [Storage-Manager-Panel]({panel}), um die Aufbewahrung der größten Datenbank-Entitäten zu verkürzen."
+        }
+      }
+    },
+    "restart_required": {
+      "title": "Neustart für Recorder-Ausschlüsse nötig",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Home Assistant neu starten",
+            "description": "Der Recorder liest seine Filter nur beim Start. {count} geänderte Entitäten wirken erst nach einem Neustart."
+          }
+        }
+      },
+      "description": "{count} Entitäten geändert."
+    },
+    "packages_missing": {
+      "title": "Packages einrichten, um Entitäten nicht aufzuzeichnen",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Packages einrichten",
+            "description": "Storage Manager schreibt Recorder-Ausschlüsse in eine Package-Datei. Deine configuration.yaml hat noch keinen Packages-Ordner. Bestätige, um diese Zeilen anzuhängen (vorher wird eine Sicherungskopie der configuration.yaml angelegt):\n\n```yaml\n{snippet}```"
+          }
+        },
+        "abort": {
+          "manual": "Deine configuration.yaml hat bereits einen homeassistant:-Abschnitt. Füge diese Zeile dort selbst ein und starte neu:\n\n```yaml\n{snippet}```"
+        }
+      },
+      "description": "Ausschlüsse sind gespeichert, können aber noch nicht geschrieben werden."
+    }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "Storage Manager ist nicht geladen."
+    }
+  },
+  "selector": {
+    "cleanup_targets": {
+      "options": {
+        "backups": "Lokale Backups (Rotation)",
+        "files": "Caches und alte Logs",
+        "orphans": "Verlauf gelöschter Entitäten",
+        "statistics": "Statistiken gelöschter Entitäten",
+        "repack": "Datenbank neu packen",
+        "docker": "Ungenutzte Docker-Images (Supervisor)"
+      }
+    },
+    "retention_tier": {
+      "options": {
+        "default": "Standard",
+        "7": "7 Tage",
+        "3": "3 Tage",
+        "1": "1 Tag",
+        "drop": "Nur letzte Stunde"
+      }
+    }
+  },
+  "services": {
+    "cleanup": {
+      "name": "Aufräumen",
+      "description": "Gibt Speicher frei. Standardmäßig nur die sicheren Ziele.",
+      "fields": {
+        "targets": {
+          "name": "Ziele",
+          "description": "Was aufgeräumt wird."
+        },
+        "dry_run": {
+          "name": "Probelauf",
+          "description": "Nur melden, was frei würde."
+        }
+      }
+    },
+    "analyze_database": {
+      "name": "Datenbank analysieren",
+      "description": "Schätzt die Größe jeder aufgezeichneten Entität."
+    },
+    "set_retention": {
+      "name": "Aufbewahrung setzen",
+      "description": "Verlauf von Entitäten kürzer als global aufbewahren.",
+      "fields": {
+        "entity_id": {
+          "name": "Entitäten",
+          "description": "Zu ändernde Entitäten."
+        },
+        "tier": {
+          "name": "Aufbewahrung",
+          "description": "Wie lange der Verlauf bleibt."
+        },
+        "purge_now": {
+          "name": "Sofort bereinigen",
+          "description": "Älteren Verlauf sofort löschen statt beim nächsten geplanten Lauf."
+        }
+      }
+    }
+  }
+}

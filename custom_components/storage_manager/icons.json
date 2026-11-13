@@ -1,0 +1,24 @@
+{
+  "entity": {
+    "sensor": {
+      "disk_free": { "default": "mdi:harddisk" },
+      "disk_used_percent": { "default": "mdi:chart-donut" },
+      "days_until_full": { "default": "mdi:calendar-alert" },
+      "growth_per_day": { "default": "mdi:trending-up" },
+      "database_size": { "default": "mdi:database" },
+      "local_backups_size": { "default": "mdi:backup-restore" },
+      "reclaimable": { "default": "mdi:broom" },
+      "freed_total": { "default": "mdi:delete-sweep" }
+    },
+    "button": {
+      "safe_cleanup": { "default": "mdi:broom" },
+      "analyze_database": { "default": "mdi:database-search" },
+      "repack_database": { "default": "mdi:database-refresh" }
+    }
+  },
+  "services": {
+    "cleanup": { "service": "mdi:broom" },
+    "analyze_database": { "service": "mdi:database-search" },
+    "set_retention": { "service": "mdi:timer-sand" }
+  }
+}
