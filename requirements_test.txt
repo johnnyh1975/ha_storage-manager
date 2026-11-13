@@ -2,7 +2,7 @@
 # pytest-homeassistant-custom-component 0.13.375 = Home Assistant 2026.10.4
 pytest-homeassistant-custom-component==0.13.375
 # frontend package required by the frontend/panel_custom dependencies of the integration
-home-assistant-frontend==20260930.5
+home-assistant-frontend==20261028.5
 mypy==2.4.1
 types-PyYAML==6.0.12.20261113
 ruff==0.17.5
