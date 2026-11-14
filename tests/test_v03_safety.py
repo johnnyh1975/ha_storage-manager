@@ -669,7 +669,10 @@ async def test_repack_needs_clean_integrity(hass: HomeAssistant, tmp_path: Path)
         assert preview["repack"]["plan"]["method"] == repack.METHOD_VACUUM
         assert "safety" not in preview
         run = AsyncMock()
-        with patch.object(coord_mod.repack, "async_repack", run):
+        with (
+            patch.object(coord_mod.repack, "async_repack", run),
+            patch.object(coordinator, "_schedule_reanalysis"),
+        ):
             result = await coordinator.async_clean(["repack"])
         assert result["blocked"] is None
         assert run.await_args.kwargs == {
@@ -823,3 +826,22 @@ def test_plan_says_what_is_missing() -> None:
     assert int(smaller * 2.2) + repack.HEADROOM <= 4_800 * MB + 1
     roomy = repack.plan(layout, disk_free=20_000 * MB, ram_free=None)
     assert roomy["missing_bytes"] == 0 and roomy["reduce_bytes"] == 0
+
+
+async def test_figures_refresh_after_cleanup(hass: HomeAssistant, tmp_path: Path) -> None:
+    """After a repack the breakdown is re-read and the database re-measured."""
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    db = _make_db(tmp_path / "fresh.db")
+    with patch.object(coord_mod.database, "sqlite_path", return_value=db):
+        await coordinator.async_refresh()
+        coordinator._cache_at["breakdown"] = 1e12
+        with (
+            patch.object(coord_mod.repack, "async_repack", AsyncMock()),
+            patch.object(coordinator, "_schedule_reanalysis") as reanalyse,
+            patch.object(coordinator, "invalidate", wraps=coordinator.invalidate) as inv,
+        ):
+            result = await coordinator.async_clean(["repack"])
+    assert result["blocked"] is None
+    reanalyse.assert_called_once()
+    assert any("breakdown" in call.args for call in inv.call_args_list)

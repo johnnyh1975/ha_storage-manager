@@ -489,7 +489,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
             ? html`<p class="muted">${t("history_empty")}</p>`
             : history.slice(0, 8).map(
                 (h) => html`<div class="list-row">
-                  <div>${t(`action_${h.action}`)}<div class="muted small">${dateTime(h.time, this.lang)}</div></div>
+                  <div>${t(`action_${h.action}`)}<div class="muted small">${dateTime(h.time, this.lang)}${(h.details?.targets || []).length
+                    ? ` · ${h.details.targets.map((x) => t(`target_${x}`)).join(", ")}`
+                    : ""}${h.details?.blocked ? ` · ${t("history_blocked")}` : ""}</div></div>
                   <div></div>
                   <div class="num"><b>${bytes(h.freed_bytes, this.lang)}</b></div>
                 </div>`

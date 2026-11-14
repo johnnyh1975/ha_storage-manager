@@ -1280,6 +1280,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             finally:
                 self._set_busy(None)
 
+            # the Supervisor breakdown is cached for an hour; it changed now
+            self.invalidate("breakdown")
             await self.async_refresh()
             after = self.data["disk"]["free"] if self.data else before
             measured = max(after - before, 0)
@@ -1440,6 +1442,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         results["repack"] = max(size_before - (size_after or size_before), 0)
         if self.store.data.analysis is not None:
             self.store.data.analysis["freelist_bytes"] = 0
+        # new size sample for the effect chart and fresh sizes per entity
+        self._schedule_reanalysis()
 
     def _repack_progress(self, share: float) -> None:
         self.busy = f"repack:{round(share * 100)}"

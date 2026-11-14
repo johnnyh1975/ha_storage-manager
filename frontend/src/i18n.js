@@ -421,6 +421,15 @@ const de = {
   hint_powercalc: "Besser an der Quelle: in den Powercalc-Optionen die Update-Intervalle (energy_update_interval, group_power_update_interval) erhöhen.",
   hint_shelly: "Besser an der Quelle: in der Shelly-Weboberfläche das Meldeintervall bzw. die Schwelle für Leistungsänderungen erhöhen.",
   hint_generic: "Besser an der Quelle: Wenn die Integration ein Abfrage- oder Meldeintervall hat, schreibt ein größeres Intervall weniger Zeilen.",
+  action_recorder_changes: "Recorder-Einstellungen geändert",
+  target_backups: "Backups",
+  target_files: "Dateien",
+  target_orphans: "Verlauf gelöschter Entitäten",
+  target_statistics: "Statistiken",
+  target_purge: "alter Verlauf",
+  target_repack: "neu gepackt",
+  target_docker: "Docker-Images",
+  history_blocked: "angehalten",
 };
 
 const en = {
@@ -843,6 +852,15 @@ const en = {
   hint_powercalc: "Better at the source: raise the update intervals in the Powercalc options (energy_update_interval, group_power_update_interval).",
   hint_shelly: "Better at the source: raise the reporting interval or the power change threshold in the Shelly web interface.",
   hint_generic: "Better at the source: if the integration has a polling or reporting interval, a longer one writes fewer rows.",
+  action_recorder_changes: "Recorder settings changed",
+  target_backups: "backups",
+  target_files: "files",
+  target_orphans: "history of deleted entities",
+  target_statistics: "statistics",
+  target_purge: "old history",
+  target_repack: "repacked",
+  target_docker: "Docker images",
+  history_blocked: "stopped",
 };
 
 const LANGS = { de, en };
