@@ -165,10 +165,9 @@ export const DatabaseSection = (Base) =>
           ? html`<div class="card"><div class="center"><span class="spinner"></span></div></div>`
           : !ent.analysis_at
           ? html`<div class="card"><p class="muted">${t("analysis_needed")}</p></div>`
-          : html`${this._renderInbox(ent)} ${this._renderKinds(ent)} ${this._renderExplorer(ent)}`}
+          : html`${this._renderInbox(ent)} ${this._renderExplorer(ent)}`}
 
         ${this._healthCard("database")}
-        ${this._renderSettings(ent)}
         ${ent?.events?.length
           ? html`<div class="card"><h2>${t("events_title")}</h2>
               ${ent.events.slice(0, 8).map((e) => html`<div class="list-row"><div><code>${e.event_type}</code></div><div></div><div class="num">${number(e.rows, this.lang)}</div></div>`)}</div>`
@@ -192,7 +191,8 @@ export const DatabaseSection = (Base) =>
         ${items.length === 0
           ? html`<p class="muted">${t("inbox_empty")}</p>`
           : html`
-              <p class="muted small" style="margin-top:-4px">${t("inbox_hint")}</p>
+              <p class="muted small" style="margin-top:-4px">${t("inbox_hint")}
+                <button class="linklike" @click=${() => this._setTab("settings")}>${t("kinds_link")}</button></p>
               ${items.map((a) => this._renderInboxItem(a))}
               <div class="row" style="margin-top:12px">
                 ${ent.dismissed_count
@@ -212,23 +212,31 @@ export const DatabaseSection = (Base) =>
 
     _renderKinds(ent) {
       const t = this.t;
+      if (!ent) return html`<div class="card"><h2>${t("kinds_title")}</h2><div class="center"><span class="spinner"></span></div></div>`;
       const kinds = ent.kinds || [];
-      if (!kinds.length) return nothing;
-      const open = !!this._kindsOpen;
       const changed = kinds.filter((k) => k.value).length;
       return html`<div class="card">
-        <h2><button class="linklike group-toggle" aria-expanded=${open ? "true" : "false"}
-            @click=${() => (this._kindsOpen = !open)}>
-          <span class="chev">${open ? "▾" : "▸"}</span>${t("kinds_title")}</button>
+        <h2>${t("kinds_title")}
           <span class="spacer"></span>
           ${changed ? html`<span class="tag">${t("kinds_changed", { n: changed })}</span>` : nothing}
         </h2>
-        ${open
-          ? html`<p class="muted small" style="margin-top:0">${t("kinds_hint")}</p>
-              <p class="muted small">${t("kinds_auto_hint")}</p>
-              ${kinds.map((k) => this._renderKind(k))}`
-          : html`<p class="muted small" style="margin:0">${t("kinds_summary")}</p>`}
+        <p class="muted small" style="margin-top:0">${t("kinds_hint")}</p>
+        <p class="muted small">${t("kinds_auto_hint")}</p>
+        ${kinds.length ? kinds.map((k) => this._renderKind(k)) : html`<p class="muted">${t("analysis_needed")}</p>`}
       </div>`;
+    }
+
+    _renderSettingsTab() {
+      const t = this.t;
+      const ent = this._entities;
+      return html`
+        ${this._renderKinds(ent)}
+        ${this._renderSettings(ent)}
+        <div class="card">
+          <h2>${t("more_options_title")}</h2>
+          <p class="muted small" style="margin-top:0">${t("more_options_hint")}</p>
+          <button class="btn" @click=${() => this._navigate("/config/integrations/integration/storage_manager")}>${t("options")}</button>
+        </div>`;
     }
 
     _renderKind(k) {
@@ -591,17 +599,15 @@ export const DatabaseSection = (Base) =>
     _renderSettings(ent) {
       const t = this.t;
       const rec = this._overview.data.recorder;
-      const open = !!this._settingsOpen;
       const orphans = rec.exclusion_orphans || { entities: [], domains: [], entity_globs: [] };
       const orphanCount = orphans.entities.length + orphans.domains.length + orphans.entity_globs.length;
       return html`<div class="card">
-        <h2><button class="linklike group-toggle" aria-expanded=${open ? "true" : "false"}
-            @click=${() => { this._settingsOpen = !open; this._settingsDraft = undefined; }}>
-          <span class="chev">${open ? "▾" : "▸"}</span>${t("settings_title")}</button>
+        <h2>${t("settings_title")}
           <span class="spacer"></span>
           ${orphanCount ? html`<span class="tag warn">${t("orphans_badge", { n: orphanCount })}</span>` : nothing}
         </h2>
-        ${open ? this._settingsBody(rec, ent, orphans, orphanCount) : html`<p class="muted small" style="margin:0">${t("settings_hint")}</p>`}
+        <p class="muted small" style="margin-top:0">${t("settings_hint")}</p>
+        ${this._settingsBody(rec, ent, orphans, orphanCount)}
       </div>`;
     }
 

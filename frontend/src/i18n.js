@@ -434,7 +434,6 @@ const de = {
   rec_retention_desc: "Empfehlungen nach Sensorart in der Datenbank-Ansicht. Wird beim nächtlichen Purge frei; die Datei schrumpft erst nach dem Neupacken.",
   reclaim_retention: "mit kürzerer Aufbewahrung zusätzlich {bytes}",
   kinds_title: "Regeln nach Sensorart",
-  kinds_summary: "Legt fest, wie lange Storage Manager für jede Sensorart empfiehlt aufzubewahren.",
   kinds_hint: "Die Regeln ändern nur die Empfehlungen. Wirksam wird erst, was du übernimmst und anwendest. Bei „Nicht aufzeichnen“ behalten Sensoren mit Langzeitstatistik 1 Tag, damit die Statistik weiterläuft. Verwendung in Dashboards, Helfern und dem Energie-Dashboard wird weiter berücksichtigt.",
   kinds_changed: "{n} angepasst",
   kinds_saved: "Regel gespeichert – Empfehlungen aktualisiert.",
@@ -465,6 +464,10 @@ const de = {
   kind_auto_since: "Neue Sensoren werden automatisch eingestellt (seit {date})",
   kinds_auto_hint: "Automatisch gilt nur für Sensoren, die nach dem Einschalten neu angelegt werden. Sie bekommen die Regel nach der ersten Analyse, die sie erkennt (täglich), ohne Mindestgröße und ohne sofortiges Löschen. Was du selbst eingestellt oder abgelehnt hast, und Verwendung in Dashboards, Helfern und dem Energie-Dashboard haben Vorrang. Jeder Sensor wird nur einmal automatisch eingestellt; danach kannst du ihn frei ändern. „Nicht aufzeichnen“ wirkt erst nach einem Neustart.",
   action_auto_rules: "Regeln auf neue Sensoren angewendet",
+  tab_settings: "Einstellungen",
+  kinds_link: "Regeln nach Sensorart anpassen",
+  more_options_title: "Weitere Optionen",
+  more_options_hint: "Backup-Rotation, Warnschwellen, Aktualisierungsintervall und Backup vor dem Löschen stehen in den Optionen der Integration.",
 };
 
 const en = {
@@ -900,7 +903,6 @@ const en = {
   rec_retention_desc: "Recommendations by kind of sensor in the database view. Freed by the nightly purge; the file only shrinks after a repack.",
   reclaim_retention: "another {bytes} with shorter retention",
   kinds_title: "Rules by kind of sensor",
-  kinds_summary: "Sets how long Storage Manager recommends keeping each kind of sensor.",
   kinds_hint: "The rules only change the recommendations. Nothing takes effect until you accept and apply it. With “Don't record”, sensors with long-term statistics keep 1 day so the statistics continue. Use in dashboards, helpers and the energy dashboard is still respected.",
   kinds_changed: "{n} changed",
   kinds_saved: "Rule saved – recommendations updated.",
@@ -931,6 +933,10 @@ const en = {
   kind_auto_since: "New sensors are set up automatically (since {date})",
   kinds_auto_hint: "Automatic only applies to sensors created after it is switched on. They get the rule after the first analysis that recognises them (daily), with no minimum size and no immediate purge. Your own settings and dismissals, and use in dashboards, helpers and the energy dashboard come first. Each sensor is set up automatically only once; afterwards you can change it freely. “Don't record” takes effect after a restart.",
   action_auto_rules: "Rules applied to new sensors",
+  tab_settings: "Settings",
+  kinds_link: "Adjust rules by kind of sensor",
+  more_options_title: "More options",
+  more_options_hint: "Backup rotation, warning thresholds, update interval and the backup before deleting are in the integration's options.",
 };
 
 const LANGS = { de, en };

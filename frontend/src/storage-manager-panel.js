@@ -9,7 +9,7 @@ import { translator, locale } from "./i18n.js";
 import { bytes, number, percent, relativeTime, dateTime } from "./format.js";
 
 const DOMAIN = "storage_manager";
-const TABS = ["overview", "database", "backups", "files"];
+const TABS = ["overview", "database", "backups", "files", "settings"];
 const PAGE = 150;
 const CATEGORY_COLORS = {
   homeassistant: "var(--sm-c1)",
@@ -63,7 +63,6 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _view: { state: true },
     _openGroups: { state: true },
     _onlyAdvice: { state: true },
-    _settingsOpen: { state: true },
     _settingsDraft: { state: true },
     _toast: { state: true },
     _working: { state: true },
@@ -112,6 +111,15 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   }
 
   updated(changed) {
+    if (changed.has("_tab") || changed.has("_overview")) {
+      // on narrow screens the tab row scrolls: keep the active tab in view
+      const active = this.renderRoot?.querySelector('nav.tabs [aria-selected="true"]');
+      const nav = active?.parentElement;
+      if (nav && nav.scrollWidth > nav.clientWidth) {
+        const left = active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+        nav.scrollLeft = Math.max(0, left - (nav.clientWidth - active.offsetWidth) / 2);
+      }
+    }
     if (changed.has("hass") && this.hass && !this._started) {
       this._started = true;
       this._loadOverview();
@@ -159,7 +167,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   }
 
   _loadTab(tab) {
-    if (tab === "database" && !this._entities) this._loadEntities();
+    if ((tab === "database" || tab === "settings") && !this._entities) this._loadEntities();
     if (tab === "backups") this._loadBackups();
     if (tab === "database" || tab === "backups") this._loadHealth();
   }
@@ -175,7 +183,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     try {
       await this._ws("refresh");
       await this._loadOverview();
-      if (this._tab === "database") await this._loadEntities();
+      if (this._tab === "database" || this._tab === "settings") await this._loadEntities();
       if (this._tab === "backups") await this._loadBackups();
     } finally {
       this._working = null;
@@ -412,6 +420,8 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         return this._renderBackups();
       case "files":
         return this._renderFiles();
+      case "settings":
+        return this._renderSettingsTab();
       default:
         return this._renderOverview();
     }

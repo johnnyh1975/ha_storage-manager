@@ -517,5 +517,10 @@ export const styles = css`
   .hint { color: var(--secondary-text-color); margin-top: 2px; }
   .hint::before { content: "💡 "; }
   .kind-auto { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+  @media (max-width: 600px) {
+    .list-row.kind-row { grid-template-columns: 1fr; gap: 6px; }
+    .list-row.kind-row > div:nth-child(2) { display: none; }
+    .list-row.kind-row select { width: 100%; }
+  }
   ul.group-members { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
 `;
