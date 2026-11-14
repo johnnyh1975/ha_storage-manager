@@ -20,6 +20,7 @@ import probatio as vol
 
 from .const import (
     CONF_ANALYSIS_HOUR,
+    CONF_BACKUP_BEFORE_DELETE,
     CONF_BACKUP_ROTATION,
     CONF_FORECAST_DAYS,
     CONF_KEEP_DAILY,
@@ -59,6 +60,9 @@ def _schema(options: dict[str, Any]) -> vol.Schema:
             vol.Required(CONF_KEEP_MONTHLY, default=o[CONF_KEEP_MONTHLY]): _number(0, 36),
             vol.Required(
                 CONF_REQUIRE_OFFSITE, default=o[CONF_REQUIRE_OFFSITE]
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_BACKUP_BEFORE_DELETE, default=o[CONF_BACKUP_BEFORE_DELETE]
             ): selector.BooleanSelector(),
             vol.Required(CONF_UPDATE_INTERVAL, default=o[CONF_UPDATE_INTERVAL]): _number(
                 5, 240, "min"

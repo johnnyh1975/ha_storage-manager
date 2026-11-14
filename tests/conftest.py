@@ -33,8 +33,17 @@ def prepared_hass(setup_hass, hass: HomeAssistant, tmp_path) -> HomeAssistant:
 async def setup_entry(
     hass: HomeAssistant, options: dict[str, Any] | None = None
 ) -> MockConfigEntry:
-    """Add and set up a Storage Manager entry."""
-    entry = MockConfigEntry(domain=DOMAIN, title="Storage Manager", data={}, options=options or {})
+    """Add and set up a Storage Manager entry.
+
+    The safety backup is off unless a test turns it on: the test instance
+    has no backup integration.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Storage Manager",
+        data={},
+        options={"backup_before_delete": False, **(options or {})},
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

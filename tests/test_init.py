@@ -26,7 +26,9 @@ def _order(setup_hass, hass, tmp_path):
 
 
 async def _setup(hass: HomeAssistant) -> MockConfigEntry:
-    entry = MockConfigEntry(domain=DOMAIN, title="Storage Manager", data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Storage Manager", data={}, options={"backup_before_delete": False}
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -102,6 +104,7 @@ async def test_analysis_and_ws(hass: HomeAssistant, setup_hass, hass_ws_client) 
     await client.send_json({"id": 4, "type": f"{DOMAIN}/clean", "targets": ["orphans"]})
     msg = await client.receive_json()
     assert msg["success"], msg
+    assert msg["result"]["blocked"] is None, msg
     await async_wait_recording_done(hass)
     result = await coordinator.async_run_analysis()
     assert "sensor.gone" not in result["entities"]

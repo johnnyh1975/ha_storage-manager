@@ -23,6 +23,7 @@
           "keep_weekly": "Wöchentliche behalten",
           "keep_monthly": "Monatliche behalten",
           "require_offsite": "Nur löschen, wenn extern vorhanden",
+          "backup_before_delete": "Vor dem Löschen in der Datenbank sichern",
           "update_interval": "Aktualisierungsintervall",
           "analysis_hour": "Tägliche Datenbankanalyse um"
         },
@@ -30,7 +31,8 @@
           "low_space_percent": "Reparaturmeldung, wenn der freie Speicher unter diesen Anteil fällt.",
           "forecast_warning_days": "Tage bis der Speicher laut Wachstumstrend voll ist.",
           "backup_rotation": "Lokale Backup-Kopien außerhalb des Tages-/Wochen-/Monatsschemas beim Aufräumen löschen.",
-          "require_offsite": "Lokale Kopie behalten, solange dasselbe Backup nicht an einem anderen Ort (NAS, Cloud) liegt."
+          "require_offsite": "Lokale Kopie behalten, solange dasselbe Backup nicht an einem anderen Ort (NAS, Cloud) liegt.",
+          "backup_before_delete": "Bevor Verlauf oder Statistiken gelöscht werden, wird ein Backup von Home Assistant mit Datenbank erstellt und geprüft. Ein Backup mit Datenbank aus den letzten sechs Stunden wird wiederverwendet."
         }
       }
     }

@@ -29,6 +29,7 @@ import probatio as vol
 from . import files
 from .const import ALL_TIERS, DOMAIN, SIGNAL_UPDATED
 from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
+from .repack import REPACK_METHODS
 
 ENTITY_ID = vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"))
 
@@ -110,6 +111,7 @@ async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         retention=msg.get("retention") or {},
         excluded=msg.get("excluded") or {},
         purge_now=msg.get("purge_now", True),
+        skip_backup=msg.get("skip_backup", False),
     )
 
 
@@ -128,7 +130,14 @@ async def _clean(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         hog_keys=msg.get("hog_keys"),
         statistic_ids=msg.get("statistic_ids"),
         entity_ids=msg.get("entity_ids"),
+        skip_backup=msg.get("skip_backup", False),
+        repack_method=msg.get("repack_method"),
+        convert=msg.get("convert", True),
     )
+
+
+async def _check_integrity(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_check_integrity()
 
 
 async def _backups(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -198,6 +207,7 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("retention"): {ENTITY_ID: vol.In(ALL_TIERS)},
             vol.Optional("excluded"): {ENTITY_ID: bool},
             vol.Optional("purge_now", default=True): bool,
+            vol.Optional("skip_backup", default=False): bool,
         },
         _apply,
     )
@@ -243,9 +253,13 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("hog_keys"): [vol.In(list(files.HOGS_BY_KEY))],
             vol.Optional("statistic_ids"): [str],
             vol.Optional("entity_ids"): [ENTITY_ID],
+            vol.Optional("skip_backup", default=False): bool,
+            vol.Optional("repack_method"): vol.In(list(REPACK_METHODS)),
+            vol.Optional("convert", default=True): bool,
         },
         _clean,
     )
+    _register(hass, {"type": f"{DOMAIN}/check_integrity"}, _check_integrity)
     _register(hass, {"type": f"{DOMAIN}/backups"}, _backups)
     _register(hass, {"type": f"{DOMAIN}/orphans"}, _orphans)
     _register(hass, {"type": f"{DOMAIN}/refresh"}, _refresh)

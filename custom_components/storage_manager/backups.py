@@ -23,7 +23,8 @@ from .const import LOCAL_BACKUP_AGENTS
 _LOGGER = logging.getLogger(__name__)
 
 
-def _manager(hass: HomeAssistant) -> Any | None:
+def backup_manager(hass: HomeAssistant) -> Any | None:
+    """The backup manager, None without the backup integration."""
     try:
         from homeassistant.components.backup import (  # noqa: PLC0415
             async_get_manager,
@@ -42,7 +43,7 @@ def _local_agent_ids(manager: Any) -> set[str]:
 
 async def async_list(hass: HomeAssistant) -> dict[str, Any] | None:
     """All backups with location info, newest first. None without backup integration."""
-    manager = _manager(hass)
+    manager = backup_manager(hass)
     if manager is None:
         return None
     backups, errors = await manager.async_get_backups()
@@ -131,7 +132,7 @@ async def async_apply_rotation(
     hass: HomeAssistant, plan: list[dict[str, Any]]
 ) -> tuple[int, list[str]]:
     """Delete the local copies marked in plan. Returns (freed bytes, errors)."""
-    manager = _manager(hass)
+    manager = backup_manager(hass)
     if manager is None:
         return 0, ["backup integration not available"]
     freed = 0

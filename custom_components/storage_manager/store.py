@@ -54,6 +54,10 @@ class ManagerData:
     dismissed: dict[str, str] = field(default_factory=dict)
     # [timestamp, file_bytes, data_bytes] recorded after each analysis
     db_samples: list[list[float]] = field(default_factory=list)
+    # last integrity check {"at", "result", "details"}
+    integrity: dict[str, Any] | None = None
+    # user confirmations for backup protection {key: iso date}
+    attestations: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -82,6 +86,8 @@ class ManagerData:
             migrated_from=list(data.get("migrated_from") or []),
             dismissed={str(k): str(v) for k, v in (data.get("dismissed") or {}).items()},
             db_samples=[list(x) for x in data.get("db_samples") or [] if len(x) == 3],
+            integrity=data.get("integrity"),
+            attestations={str(k): str(v) for k, v in (data.get("attestations") or {}).items()},
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -100,6 +106,8 @@ class ManagerData:
             "migrated_from": self.migrated_from,
             "dismissed": self.dismissed,
             "db_samples": self.db_samples,
+            "integrity": self.integrity,
+            "attestations": self.attestations,
         }
 
 

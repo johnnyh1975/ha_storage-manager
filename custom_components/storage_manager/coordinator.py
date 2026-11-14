@@ -32,11 +32,12 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import advisor, database, disk, files, recorder_config
+from . import advisor, database, disk, files, recorder_config, repack, safety
 from . import backups as backup_mod
 from . import usage as usage_mod
 from .const import (
     ALL_TIERS,
+    CONF_BACKUP_BEFORE_DELETE,
     CONF_BACKUP_ROTATION,
     CONF_KEEP_DAILY,
     CONF_KEEP_MONTHLY,
@@ -58,6 +59,7 @@ _LOGGER = logging.getLogger(__name__)
 BREAKDOWN_MAX_AGE = 3600
 FILES_MAX_AGE = 6 * 3600
 BACKUPS_MAX_AGE = 3600
+LOG_IDS_MAX = 200
 ANALYSIS_MAX_AGE = 26 * 3600
 USAGE_MAX_AGE = 600
 
@@ -71,6 +73,8 @@ ALL_CLEAN_TARGETS = (
     "repack",
     "docker",
 )
+# targets that delete rows from the database and run the safety chain first
+DB_DELETE_TARGETS = ("orphans", "statistics", "purge")
 
 
 class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -202,6 +206,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         file_safe = int((files_scan or {}).get("reclaimable_safe", 0))
         orphans = self.orphans()
         freelist = int((analysis or {}).get("freelist_bytes") or 0)
+        repack_plan = await repack.async_plan(hass, database.sqlite_path(hass), usage["free"])
+        if repack_plan is not None:
+            freelist = int(repack_plan["free_pages_bytes"])
 
         fc = disk.forecast(self.store.data.samples, now)
         percent_used = round(usage["used"] / usage["total"] * 100, 1) if usage["total"] else 0
@@ -224,6 +231,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "orphan_entity_bytes": orphans["entity_bytes"],
                 "orphan_statistics": len(orphans["statistics"]),
                 "obsolete": (analysis or {}).get("obsolete"),
+                "repack": repack_plan,
+                "integrity": self.store.data.integrity,
             },
             "backups": {
                 "available": backup_list is not None,
@@ -408,8 +417,14 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         retention: dict[str, str] | None = None,
         excluded: dict[str, bool] | None = None,
         purge_now: bool = True,
+        skip_backup: bool = False,
     ) -> dict[str, Any]:
-        """Apply a draft from the panel or an action call."""
+        """Apply a draft from the panel or an action call.
+
+        Settings are always saved. The immediate purge runs only after the
+        safety chain; if that stops it, the nightly retention applies the
+        new tiers later.
+        """
         data = self.store.data
         retention = retention or {}
         excluded = excluded or {}
@@ -430,7 +445,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data.excluded = sorted(new_excluded)
         self.store.schedule_save()
 
-        result: dict[str, Any] = {"restart_required": False, "packages_missing": False}
+        result: dict[str, Any] = {
+            "restart_required": False,
+            "packages_missing": False,
+            "blocked": None,
+            "backup": None,
+        }
         if not await self._async_sync_package():
             result["packages_missing"] = True
 
@@ -441,20 +461,38 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if tier in RETENTION_TIERS:
                     by_tier.setdefault(RETENTION_TIERS[tier], []).append(entity_id)
             by_tier.setdefault(0, []).extend(newly_excluded)
+            by_tier = {k: v for k, v in by_tier.items() if v}
+            if by_tier:
+                try:
+                    if self._lock.locked():
+                        raise HomeAssistantError("Another cleanup is running")
+                    async with self._lock:
+                        chain = await self._async_safety(skip_backup=skip_backup)
+                    result["backup"] = chain.get("backup")
+                except safety.SafetyError as err:
+                    result["blocked"] = {"reason": err.reason, "detail": err.detail}
+                    self.store.log(
+                        "recorder_changes",
+                        0,
+                        {"entities": len(retention) + len(excluded), "blocked": err.reason},
+                    )
+                    by_tier = {}
             estimate = self._estimate_purge(by_tier)
             for keep_days, entity_ids in by_tier.items():
                 await database.async_purge_entities(self.hass, entity_ids, keep_days)
             self._adjust_analysis(by_tier)
             if estimate:
-                self.store.log(
-                    "purge_entities",
-                    estimate,
-                    {"entities": sum(map(len, by_tier.values()))},
-                )
+                details: dict[str, Any] = {
+                    "entities": sum(map(len, by_tier.values())),
+                    "deleted": {str(k): v[:LOG_IDS_MAX] for k, v in sorted(by_tier.items())},
+                }
+                if result["backup"]:
+                    details["backup"] = result["backup"]["name"]
+                self.store.log("purge_entities", estimate, details)
             if any(by_tier.values()):
                 self._schedule_reanalysis()
         changed = len(retention) + len(excluded)
-        if changed and not (purge_now and any(by_tier.values())):
+        if changed and not result["blocked"] and not (purge_now and any(by_tier.values())):
             self.store.log("recorder_changes", 0, {"entities": changed})
         for entity_id in [*retention, *excluded]:
             self.store.data.dismissed.pop(entity_id, None)
@@ -510,6 +548,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if tier != TIER_DROP and not include_daily:
                 continue
             groups.setdefault(keep, []).append(entity_id)
+        if (self.store.data.integrity or {}).get("result") == safety.RESULT_CORRUPT:
+            _LOGGER.warning("Retention skipped: the database failed its integrity check")
+            return
         for keep_days, entity_ids in groups.items():
             await database.async_purge_entities(self.hass, entity_ids, keep_days)
 
@@ -922,11 +963,56 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             preview["repack"] = {
                 "bytes": data["reclaimable"]["repack"],
                 "possible": self.repack_possible(),
+                "plan": data["database"].get("repack"),
             }
         if "docker" in targets:
             preview["docker"] = {"bytes": None, "possible": bool(data["is_hassio"])}
         preview["total"] = sum(int(p.get("bytes") or 0) for p in preview.values())
+        if set(targets) & set(DB_DELETE_TARGETS):
+            preview["safety"] = await self.async_safety_plan()
         return preview
+
+    async def async_safety_plan(self) -> dict[str, Any]:
+        """Preview of the safety chain for the current state."""
+        return await safety.async_plan(
+            self.hass,
+            path=database.sqlite_path(self.hass),
+            store=self.store,
+            db_size=int(self.data["database"]["size"] or 0),
+            disk_free=int(self.data["disk"]["free"]),
+            backup_enabled=bool(self.options[CONF_BACKUP_BEFORE_DELETE]),
+        )
+
+    async def _async_safety(self, *, skip_backup: bool) -> dict[str, Any]:
+        """Run the safety chain on fresh numbers; raises safety.SafetyError."""
+        await self.async_refresh()
+        try:
+            return await safety.async_run(
+                self.hass,
+                path=database.sqlite_path(self.hass),
+                store=self.store,
+                db_size=int(self.data["database"]["size"] or 0),
+                disk_free=int(self.data["disk"]["free"]),
+                backup=bool(self.options[CONF_BACKUP_BEFORE_DELETE]) and not skip_backup,
+                on_step=lambda key: self._set_busy(f"safety_{key}"),
+            )
+        finally:
+            self._set_busy(None)
+
+    async def async_check_integrity(self) -> dict[str, Any]:
+        """Run the integrity check now (from the panel)."""
+        if self._lock.locked():
+            raise HomeAssistantError("Another cleanup is running")
+        async with self._lock:
+            self._set_busy("safety_integrity")
+            try:
+                result = await safety.async_integrity(
+                    self.hass, database.sqlite_path(self.hass), self.store, force=True
+                )
+            finally:
+                self._set_busy(None)
+        await self.async_refresh()
+        return result
 
     def safe_targets(self) -> list[str]:
         """Targets of the one-click safe cleanup (backups only with rotation on)."""
@@ -936,9 +1022,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return targets
 
     def repack_possible(self) -> bool:
-        """VACUUM needs roughly the database size as free space."""
+        """Whether a repack fits on the disk (SQLite: measured page layout)."""
         if not self.data:
             return False
+        plan = self.data["database"].get("repack")
+        if plan is not None:
+            return plan["method"] is not None
         size = float(self.data["database"]["size"] or 0)
         return bool(self.data["disk"]["free"] > size * 1.1)
 
@@ -949,8 +1038,15 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hog_keys: list[str] | None = None,
         statistic_ids: list[str] | None = None,
         entity_ids: list[str] | None = None,
+        skip_backup: bool = False,
+        repack_method: str | None = None,
+        convert: bool = True,
     ) -> dict[str, Any]:
-        """Execute cleanup targets. Returns freed bytes per target."""
+        """Execute cleanup targets. Returns freed bytes per target.
+
+        Order: what frees space without touching the database first, then
+        the safety chain, then deletions in the database, then the repack.
+        """
         unknown = set(targets) - set(ALL_CLEAN_TARGETS)
         if unknown:
             raise HomeAssistantError(f"Unknown cleanup targets: {', '.join(sorted(unknown))}")
@@ -961,80 +1057,26 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             before = self.data["disk"]["free"] if self.data else 0
             results: dict[str, Any] = {}
             errors: list[str] = []
+            deleted: dict[str, Any] = {}
+            blocked: dict[str, str] | None = None
+            safety_result: dict[str, Any] | None = None
             try:
-                if "backups" in targets:
-                    self._set_busy("backups")
-                    plan = self.backup_plan()
-                    freed, errs = await backup_mod.async_apply_rotation(self.hass, plan)
-                    results["backups"] = freed
-                    errors += errs
-                    self.invalidate("backups", "breakdown")
-                if "files" in targets:
-                    self._set_busy("files")
-                    scan = (self.data or {}).get("files") or {}
-                    keys = hog_keys or [
-                        h["key"] for h in scan.get("hogs", []) if h["safety"] == "safe"
-                    ]
-                    freed = 0
-                    for key in keys:
-                        if key not in files.HOGS_BY_KEY:
-                            errors.append(f"unknown file category {key}")
-                            continue
-                        freed += await files.async_clean_hog(self.hass, key)
-                    results["files"] = freed
-                    self.invalidate("files", "breakdown")
-                if "orphans" in targets:
-                    self._set_busy("orphans")
-                    orphans = self.orphans()
-                    ids = entity_ids or orphans["entities"]
-                    await database.async_purge_entities(self.hass, ids, 0)
-                    await database.async_wait_idle(self.hass)
-                    results["orphans"] = orphans["entity_bytes"] if not entity_ids else 0
-                    self._drop_from_analysis(ids)
-                if "statistics" in targets:
-                    self._set_busy("statistics")
-                    ids = statistic_ids or self.orphans()["statistics"]
-                    await database.async_clear_statistics(self.hass, ids)
-                    results["statistics"] = 0
-                    analysis = self.store.data.analysis or {}
-                    for sid in ids:
-                        (analysis.get("statistics") or {}).pop(sid, None)
-                if "purge" in targets:
-                    self._set_busy("purge")
-                    obsolete = (self.store.data.analysis or {}).get("obsolete") or {}
-                    await database.async_purge(self.hass)
-                    await database.async_wait_idle(self.hass)
-                    results["purge"] = int(obsolete.get("bytes") or 0)
-                    if self.store.data.analysis is not None:
-                        self.store.data.analysis["obsolete"] = {
-                            **obsolete,
-                            "states": 0,
-                            "events": 0,
-                            "bytes": 0,
-                        }
-                    self._schedule_reanalysis()
-                if "repack" in targets:
-                    if not self.repack_possible():
-                        errors.append("not enough free space for repack")
-                    else:
-                        self._set_busy("repack")
-                        size_before = self.data["database"]["size"] or 0
-                        await database.async_repack(self.hass)
-                        await database.async_wait_idle(self.hass)
-                        size_after = await database.async_database_size(
-                            self.hass, self.store.data.analysis
-                        )
-                        results["repack"] = max(size_before - (size_after or size_before), 0)
-                        if self.store.data.analysis is not None:
-                            self.store.data.analysis["freelist_bytes"] = 0
-                if "docker" in targets:
-                    if not is_hassio(self.hass):
-                        errors.append("docker cleanup needs the Supervisor")
-                    else:
-                        self._set_busy("docker")
-                        await disk.async_supervisor_repair(self.hass)
-                        results["docker"] = 0
-                        self.invalidate("breakdown")
+                await self._clean_outside_database(targets, hog_keys, results, errors)
+                db_targets = [t for t in DB_DELETE_TARGETS if t in targets]
+                if db_targets or "repack" in targets:
+                    try:
+                        if db_targets:
+                            safety_result = await self._async_safety(skip_backup=skip_backup)
+                        else:
+                            await self._async_require_integrity()
+                    except safety.SafetyError as err:
+                        blocked = {"reason": err.reason, "detail": err.detail}
+                if blocked is None:
+                    await self._clean_database(
+                        db_targets, entity_ids, statistic_ids, results, deleted
+                    )
+                    if "repack" in targets:
+                        await self._clean_repack(repack_method, convert, results, errors)
             finally:
                 self._set_busy(None)
 
@@ -1043,12 +1085,16 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             measured = max(after - before, 0)
             reported = sum(int(v or 0) for v in results.values())
             freed = max(measured, reported)
-            if freed or results:
-                self.store.log(
-                    "cleanup",
-                    freed,
-                    {"targets": targets, "results": results, "errors": errors},
-                )
+            backup_info = (safety_result or {}).get("backup")
+            if freed or results or blocked:
+                details: dict[str, Any] = {"targets": targets, "results": results, "errors": errors}
+                if deleted:
+                    details["deleted"] = deleted
+                if backup_info:
+                    details["backup"] = backup_info["name"]
+                if blocked:
+                    details["blocked"] = blocked["reason"]
+                self.store.log("cleanup", freed, details)
                 self.store.schedule_save()
                 self.async_set_updated_data(
                     {**self.data, "freed_total": self.store.data.freed_total}
@@ -1058,7 +1104,136 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "measured": measured,
                 "results": results,
                 "errors": errors,
+                "blocked": blocked,
+                "backup": backup_info,
             }
+
+    async def _clean_outside_database(
+        self,
+        targets: list[str],
+        hog_keys: list[str] | None,
+        results: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        if "backups" in targets:
+            self._set_busy("backups")
+            plan = self.backup_plan()
+            freed, errs = await backup_mod.async_apply_rotation(self.hass, plan)
+            results["backups"] = freed
+            errors += errs
+            self.invalidate("backups", "breakdown")
+        if "files" in targets:
+            self._set_busy("files")
+            scan = (self.data or {}).get("files") or {}
+            keys = hog_keys or [h["key"] for h in scan.get("hogs", []) if h["safety"] == "safe"]
+            freed = 0
+            for key in keys:
+                if key not in files.HOGS_BY_KEY:
+                    errors.append(f"unknown file category {key}")
+                    continue
+                freed += await files.async_clean_hog(self.hass, key)
+            results["files"] = freed
+            self.invalidate("files", "breakdown")
+        if "docker" in targets:
+            if not is_hassio(self.hass):
+                errors.append("docker cleanup needs the Supervisor")
+            else:
+                self._set_busy("docker")
+                await disk.async_supervisor_repair(self.hass)
+                results["docker"] = 0
+                self.invalidate("breakdown")
+
+    async def _async_require_integrity(self) -> None:
+        """A repack alone needs no backup, but never runs on a damaged file."""
+        self._set_busy("safety_integrity")
+        result = await safety.async_integrity(
+            self.hass, database.sqlite_path(self.hass), self.store
+        )
+        if result["result"] == safety.RESULT_CORRUPT:
+            raise safety.SafetyError("corrupt", "; ".join(result.get("details") or []))
+
+    async def _clean_database(
+        self,
+        db_targets: list[str],
+        entity_ids: list[str] | None,
+        statistic_ids: list[str] | None,
+        results: dict[str, Any],
+        deleted: dict[str, Any],
+    ) -> None:
+        if "orphans" in db_targets:
+            self._set_busy("orphans")
+            orphans = self.orphans()
+            ids = entity_ids or orphans["entities"]
+            await database.async_purge_entities(self.hass, ids, 0)
+            await database.async_wait_idle(self.hass)
+            results["orphans"] = orphans["entity_bytes"] if not entity_ids else 0
+            deleted["entities"] = ids[:LOG_IDS_MAX]
+            self._drop_from_analysis(ids)
+        if "statistics" in db_targets:
+            self._set_busy("statistics")
+            ids = statistic_ids or self.orphans()["statistics"]
+            await database.async_clear_statistics(self.hass, ids)
+            results["statistics"] = 0
+            deleted["statistics"] = ids[:LOG_IDS_MAX]
+            analysis = self.store.data.analysis or {}
+            for sid in ids:
+                (analysis.get("statistics") or {}).pop(sid, None)
+        if "purge" in db_targets:
+            self._set_busy("purge")
+            obsolete = (self.store.data.analysis or {}).get("obsolete") or {}
+            await database.async_purge(self.hass)
+            await database.async_wait_idle(self.hass)
+            results["purge"] = int(obsolete.get("bytes") or 0)
+            deleted["older_than_days"] = get_instance(self.hass).keep_days
+            if self.store.data.analysis is not None:
+                self.store.data.analysis["obsolete"] = {
+                    **obsolete,
+                    "states": 0,
+                    "events": 0,
+                    "bytes": 0,
+                }
+            self._schedule_reanalysis()
+
+    async def _clean_repack(
+        self,
+        method: str | None,
+        convert: bool,
+        results: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        await self.async_refresh()  # free space and free pages after the deletions
+        size_before = self.data["database"]["size"] or 0
+        path = database.sqlite_path(self.hass)
+        plan = self.data["database"].get("repack")
+        if path is None or plan is None:
+            if not self.repack_possible():
+                errors.append("not enough free space for repack")
+                return
+            self._set_busy("repack")
+            await database.async_repack(self.hass)
+            await database.async_wait_idle(self.hass)
+        else:
+            method = method or plan["method"]
+            option = plan["options"].get(method or "") if method else None
+            if option is None or not option["possible"]:
+                errors.append("not enough free space for repack")
+                return
+            self._set_busy("repack")
+            await repack.async_repack(
+                self.hass,
+                path,
+                method=str(method),
+                convert=convert and not plan["incremental_ready"],
+                on_progress=self._repack_progress,
+            )
+        size_after = await database.async_database_size(self.hass, self.store.data.analysis)
+        results["repack"] = max(size_before - (size_after or size_before), 0)
+        if self.store.data.analysis is not None:
+            self.store.data.analysis["freelist_bytes"] = 0
+
+    def _repack_progress(self, share: float) -> None:
+        self.busy = f"repack:{round(share * 100)}"
+        self._notify()
 
     def _adjust_analysis(self, by_tier: dict[int, list[str]]) -> None:
         """Update cached sizes after a purge so the UI reflects it at once."""

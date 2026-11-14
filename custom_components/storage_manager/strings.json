@@ -23,6 +23,7 @@
           "keep_weekly": "Keep weekly",
           "keep_monthly": "Keep monthly",
           "require_offsite": "Only delete if stored elsewhere",
+          "backup_before_delete": "Back up before deleting from the database",
           "update_interval": "Update interval",
           "analysis_hour": "Daily database analysis at"
         },
@@ -30,7 +31,8 @@
           "low_space_percent": "Create a repair issue when free space drops below this share.",
           "forecast_warning_days": "Days until the disk is full according to the growth trend.",
           "backup_rotation": "Delete local backup copies that fall outside the daily/weekly/monthly schedule when you run a cleanup.",
-          "require_offsite": "Keep a local copy unless the same backup exists on another location (NAS, cloud)."
+          "require_offsite": "Keep a local copy unless the same backup exists on another location (NAS, cloud).",
+          "backup_before_delete": "Before history or statistics are deleted, a backup of Home Assistant with the database is created and verified. A backup with the database from the last six hours is reused."
         }
       }
     }

@@ -31,6 +31,7 @@ CONF_KEEP_WEEKLY: Final = "keep_weekly"
 CONF_KEEP_MONTHLY: Final = "keep_monthly"
 CONF_REQUIRE_OFFSITE: Final = "require_offsite"
 CONF_ANALYSIS_HOUR: Final = "analysis_hour"
+CONF_BACKUP_BEFORE_DELETE: Final = "backup_before_delete"
 
 DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_UPDATE_INTERVAL: 15,
@@ -42,6 +43,7 @@ DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_KEEP_MONTHLY: 6,
     CONF_REQUIRE_OFFSITE: True,
     CONF_ANALYSIS_HOUR: 3,
+    CONF_BACKUP_BEFORE_DELETE: True,
 }
 
 # Retention tiers. Value = keep_days passed to recorder.purge_entities.

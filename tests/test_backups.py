@@ -69,7 +69,7 @@ async def test_list_and_rotate(hass: HomeAssistant) -> None:
     """Local/remote split, totals, rotation deletes only local copies."""
     manager = _make(40)
     manager.errors = {"cloud.cloud": RuntimeError("offline")}
-    with patch.object(backups, "_manager", return_value=manager):
+    with patch.object(backups, "backup_manager", return_value=manager):
         listed = await backups.async_list(hass)
         assert listed["local_total"] == 4000
         assert listed["agent_errors"] == ["cloud.cloud"]
