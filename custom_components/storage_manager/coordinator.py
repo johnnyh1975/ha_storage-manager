@@ -32,7 +32,7 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import advisor, database, disk, files, recorder_config, repack, safety
+from . import advisor, database, disk, files, health, recorder_config, repack, safety
 from . import backups as backup_mod
 from . import usage as usage_mod
 from .const import (
@@ -62,6 +62,8 @@ BACKUPS_MAX_AGE = 3600
 LOG_IDS_MAX = 200
 ANALYSIS_MAX_AGE = 26 * 3600
 USAGE_MAX_AGE = 600
+HEALTH_MAX_AGE = 600
+STATISTICS_CHECK_MAX_AGE = 6 * 3600
 
 SAFE_CLEAN_TARGETS = ("backups", "files")
 ALL_CLEAN_TARGETS = (
@@ -75,6 +77,16 @@ ALL_CLEAN_TARGETS = (
 )
 # targets that delete rows from the database and run the safety chain first
 DB_DELETE_TARGETS = ("orphans", "statistics", "purge")
+
+
+def _wal_size(path: Any) -> int | None:
+    """Size of the SQLite write-ahead log (blocking)."""
+    if path is None:
+        return None
+    try:
+        return int(path.with_name(path.name + "-wal").stat().st_size)
+    except OSError:
+        return 0
 
 
 class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -101,6 +113,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.excluded_at_start: list[str] = []
         self.package_at_start: dict[str, Any] = {}
         self.locked_settings: dict[str, Any] = {}
+        self.core_entity_options = recorder_config.core_entity_options()
         self.yaml_filters: dict[str, Any] = {}
         self.analysis_running = False
         self.busy: str | None = None
@@ -356,6 +369,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "packages": self.packages.as_dict(),
             "excluded_count": len(data.excluded),
+            "core_entity_options": self.core_entity_options,
             "retention_count": len(data.retention),
             "restart_required": written != at_start,
             "pending_restart": sorted(written ^ at_start),
@@ -1056,8 +1070,64 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             finally:
                 self._set_busy(None)
+        self.invalidate("health")
         await self.async_refresh()
         return result
+
+    # ------------------------------------------------------------------
+    # health
+    # ------------------------------------------------------------------
+
+    async def async_health(self, *, force: bool = False) -> dict[str, Any]:
+        """Health checks for the database and the backups (cached)."""
+        if force:
+            self.invalidate("health", "statistics_issues", "backup_info")
+        return dict(await self._cached("health", HEALTH_MAX_AGE, self._async_build_health))
+
+    async def _async_build_health(self) -> dict[str, Any]:
+        hass = self.hass
+        stat_issues = await self._cached(
+            "statistics_issues",
+            STATISTICS_CHECK_MAX_AGE,
+            lambda: health.async_statistics_issues(hass),
+        )
+        info = await self._cached(
+            "backup_info", BACKUPS_MAX_AGE, lambda: health.async_backup_info(hass)
+        )
+        path = database.sqlite_path(hass)
+        wal = await hass.async_add_executor_job(_wal_size, path)
+        data = self.data or {}
+        db_checks = health.database_checks(
+            dialect=(self.store.data.analysis or {}).get("dialect"),
+            file_bytes=(data.get("database") or {}).get("size"),
+            wal_bytes=wal,
+            samples=self.store.data.db_samples,
+            integrity=self.store.data.integrity,
+            statistics_issues=stat_issues,
+            now=time.time(),
+        )
+        backup_checks = health.backup_checks(
+            info,
+            disk_free=int((data.get("disk") or {}).get("free") or 0),
+            attestations=self.store.data.attestations,
+            now=dt_util.utcnow(),
+        )
+        return {
+            "database": {"status": health.summary(db_checks), "checks": db_checks},
+            "backups": {"status": health.summary(backup_checks), "checks": backup_checks},
+            "checked_at": dt_util.utcnow().isoformat(),
+        }
+
+    def attest(self, key: str, done: bool) -> None:
+        """Record (or clear) a user confirmation such as a restore test."""
+        if key not in health.ATTESTATIONS:
+            raise HomeAssistantError(f"Unknown confirmation {key}")
+        if done:
+            self.store.data.attestations[key] = dt_util.utcnow().isoformat()
+        else:
+            self.store.data.attestations.pop(key, None)
+        self.store.schedule_save()
+        self.invalidate("health")
 
     def safe_targets(self) -> list[str]:
         """Targets of the one-click safe cleanup (backups only with rotation on)."""

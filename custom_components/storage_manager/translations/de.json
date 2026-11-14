@@ -131,6 +131,10 @@
           "manual": "Deine configuration.yaml hat bereits einen homeassistant:-Abschnitt. Füge diese Zeile dort selbst ein und starte neu:\n\n```yaml\n{snippet}```"
         }
       }
+    },
+    "database_damaged": {
+      "title": "Die Recorder-Datenbank ist beschädigt",
+      "description": "Die Integritätsprüfung von SQLite hat Fehler gefunden: {details}\n\nStorage Manager löscht nichts aus der Datenbank, bis eine Prüfung wieder bestanden ist. Stößt Home Assistant selbst auf den Schaden, legt es die Datenbank beiseite und beginnt eine neue, leere. Die Recorder-Dokumentation beschreibt die Möglichkeiten. Stelle ein Backup wieder her, wenn du den alten Verlauf brauchst, und starte die Prüfung danach im Storage-Manager-Panel erneut."
     }
   },
   "exceptions": {

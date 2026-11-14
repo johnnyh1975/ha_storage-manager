@@ -18,6 +18,7 @@ from .const import (
     CONF_FORECAST_DAYS,
     CONF_LOW_SPACE_PERCENT,
     DOMAIN,
+    ISSUE_DATABASE_DAMAGED,
     ISSUE_FORECAST,
     ISSUE_LOW_SPACE,
     ISSUE_PACKAGES,
@@ -115,11 +116,33 @@ def async_update_issues(hass: HomeAssistant, coordinator: StorageCoordinator) ->
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_PACKAGES)
 
+    integrity = coordinator.store.data.integrity or {}
+    if integrity.get("result") == "corrupt":
+        details = list(integrity.get("details") or [])
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_DATABASE_DAMAGED,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_DATABASE_DAMAGED,
+            translation_placeholders={"details": "; ".join(details[:3]) or "-"},
+            learn_more_url="https://www.home-assistant.io/integrations/recorder/#handling-disk-corruption-and-hardware-failures",
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_DATABASE_DAMAGED)
+
 
 @callback
 def async_clear_issues(hass: HomeAssistant) -> None:
     """Delete all issues of this integration."""
-    for issue_id in (ISSUE_LOW_SPACE, ISSUE_FORECAST, ISSUE_RESTART, ISSUE_PACKAGES):
+    for issue_id in (
+        ISSUE_LOW_SPACE,
+        ISSUE_FORECAST,
+        ISSUE_RESTART,
+        ISSUE_PACKAGES,
+        ISSUE_DATABASE_DAMAGED,
+    ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 

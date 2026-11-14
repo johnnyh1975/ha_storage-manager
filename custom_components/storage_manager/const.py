@@ -74,6 +74,7 @@ ISSUE_LOW_SPACE: Final = "low_space"
 ISSUE_FORECAST: Final = "disk_full_forecast"
 ISSUE_RESTART: Final = "restart_required"
 ISSUE_PACKAGES: Final = "packages_missing"
+ISSUE_DATABASE_DAMAGED: Final = "database_damaged"
 
 PACKAGE_NAME: Final = "storage_manager"
 PACKAGE_FILE: Final = "storage_manager.yaml"

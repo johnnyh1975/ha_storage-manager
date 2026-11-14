@@ -125,7 +125,7 @@ def test_plan_handles_bad_dates_and_empty() -> None:
     assert reasons["y"] == "unknown_date"
 
 
-def test_local_agent_ids_include_manager_agents() -> None:
+def testlocal_agent_ids_include_manager_agents() -> None:
     """Agents registered as local by the manager count as local."""
     manager = FakeManager(local_backup_agents={"custom.local": object()})
-    assert "custom.local" in backups._local_agent_ids(manager)
+    assert "custom.local" in backups.local_agent_ids(manager)

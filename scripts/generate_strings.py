@@ -198,6 +198,15 @@ def build(lang):
                     },
                 },
             },
+            "database_damaged": {
+                "title": t(
+                    "The recorder database is damaged", "Die Recorder-Datenbank ist beschädigt"
+                ),
+                "description": t(
+                    "SQLite's integrity check found errors: {details}\n\nStorage Manager deletes nothing from the database until a check passes again. When Home Assistant itself runs into the damage, it moves the database aside and starts a new, empty one. See the recorder documentation for your options, restore a backup if you need the old history, and run the check again from the Storage Manager panel.",
+                    "Die Integritätsprüfung von SQLite hat Fehler gefunden: {details}\n\nStorage Manager löscht nichts aus der Datenbank, bis eine Prüfung wieder bestanden ist. Stößt Home Assistant selbst auf den Schaden, legt es die Datenbank beiseite und beginnt eine neue, leere. Die Recorder-Dokumentation beschreibt die Möglichkeiten. Stelle ein Backup wieder her, wenn du den alten Verlauf brauchst, und starte die Prüfung danach im Storage-Manager-Panel erneut.",
+                ),
+            },
         },
         "exceptions": {
             "not_loaded": {

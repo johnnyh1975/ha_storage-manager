@@ -35,7 +35,8 @@ def backup_manager(hass: HomeAssistant) -> Any | None:
         return None
 
 
-def _local_agent_ids(manager: Any) -> set[str]:
+def local_agent_ids(manager: Any) -> set[str]:
+    """Agents that store backups on this machine."""
     ids = set(LOCAL_BACKUP_AGENTS)
     ids.update(getattr(manager, "local_backup_agents", {}) or {})
     return ids
@@ -47,7 +48,7 @@ async def async_list(hass: HomeAssistant) -> dict[str, Any] | None:
     if manager is None:
         return None
     backups, errors = await manager.async_get_backups()
-    local_ids = _local_agent_ids(manager)
+    local_ids = local_agent_ids(manager)
     items: list[dict[str, Any]] = []
     for backup in backups.values():
         agents = dict(backup.agents)

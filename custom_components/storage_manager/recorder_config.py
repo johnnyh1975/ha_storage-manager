@@ -266,3 +266,28 @@ def summarize_filters(recorder_conf: dict[str, Any]) -> dict[str, Any]:
     out["purge_keep_days"] = recorder_conf.get("purge_keep_days")
     out["uses_include"] = bool(out.get("include"))
     return out
+
+
+def _entity_options_module() -> Any:
+    try:
+        from homeassistant.components.recorder import entity_options  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - before Home Assistant 2026.10
+        return None
+    return entity_options
+
+
+def core_entity_options(module: Any = None) -> str | None:
+    """How far Home Assistant's own per-entity recorder options have come.
+
+    ``None``: not present. ``read_only``: entities can be asked whether they
+    are recorded (2026.10). ``writable``: the recorder offers a way to change
+    it, which Storage Manager will use instead of the package file.
+    """
+    if module is None:
+        module = _entity_options_module()
+        if module is None:
+            return None
+    names = [n for n in dir(module) if not n.startswith("_")]
+    if any(("update" in n or "set" in n) and n != "async_setup" for n in names):
+        return "writable"
+    return "read_only"

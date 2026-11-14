@@ -131,6 +131,10 @@
           "manual": "Your configuration.yaml already has a homeassistant: section. Add this line under it yourself and restart:\n\n```yaml\n{snippet}```"
         }
       }
+    },
+    "database_damaged": {
+      "title": "The recorder database is damaged",
+      "description": "SQLite's integrity check found errors: {details}\n\nStorage Manager deletes nothing from the database until a check passes again. When Home Assistant itself runs into the damage, it moves the database aside and starts a new, empty one. See the recorder documentation for your options, restore a backup if you need the old history, and run the check again from the Storage Manager panel."
     }
   },
   "exceptions": {
