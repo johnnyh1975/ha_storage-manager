@@ -8,6 +8,7 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import re
 from typing import Any
@@ -48,6 +49,49 @@ PRESENCE_RE = re.compile(
     r"(distance|moving_target|still_target|target_distance|detection_distance)"
 )
 SOURCE_HINTS = {"esphome": "esphome", "powercalc": "powercalc", "shelly": "shelly"}
+
+# Kinds of sensor the user can configure; each rule reason belongs to one kind.
+OFF = "off"
+KINDS = (
+    "noise",
+    "time",
+    "power",
+    "energy",
+    "gps",
+    "presence",
+    "attribute_updates",
+    "attributes",
+    "frequent",
+)
+REASON_KIND = {
+    "noise": "noise",
+    "noise_statistics": "noise",
+    "time": "time",
+    "time_statistics": "time",
+    "power_statistics": "power",
+    "energy_statistics": "energy",
+    "gps_tracker": "gps",
+    "fast_presence": "presence",
+    "attribute_updates": "attribute_updates",
+    "attributes": "attributes",
+    "statistics_kept": "frequent",
+    "frequent": "frequent",
+}
+# built-in tier per kind (entities with/without statistics may differ, see base_rule)
+KIND_DEFAULTS = {
+    "noise": EXCLUDED,
+    "time": EXCLUDED,
+    "power": "3",
+    "energy": "7",
+    "gps": "7",
+    "presence": "1",
+    "attribute_updates": "3",
+    "attributes": "3",
+    "frequent": "3",
+}
+# these kinds always have long-term statistics: "don't record" would drop them
+KINDS_WITH_STATISTICS = frozenset({"power", "energy"})
+POLICY_VALUES = ("7", "3", "1", "drop", EXCLUDED, OFF)
 THROTTLE_REASONS = frozenset({"power_statistics", "fast_presence", "statistics_kept", "frequent"})
 
 
@@ -144,8 +188,31 @@ def _kind_rule(facts: EntityFacts) -> tuple[str, str] | None:
     return None
 
 
-def base_rule(facts: EntityFacts) -> tuple[str, str] | None:
-    """(action, reason) before usage constraints are applied."""
+def base_rule(
+    facts: EntityFacts, policy: Mapping[str, str] | None = None
+) -> tuple[str, str] | None:
+    """(action, reason) before usage constraints, with the user's rules per kind.
+
+    ``policy`` maps a kind to a tier or ``off``; kinds not in it use the
+    built-in rule. Long-term statistics are never given up: an entity with
+    statistics keeps one day instead of not being recorded.
+    """
+    rule = builtin_rule(facts)
+    if rule is None or not policy:
+        return rule
+    action, reason = rule
+    value = policy.get(REASON_KIND[reason])
+    if value is None:
+        return rule
+    if value == OFF:
+        return None
+    if value == EXCLUDED and facts.state_class is not None:
+        value = "1"
+    return value, reason
+
+
+def builtin_rule(facts: EntityFacts) -> tuple[str, str] | None:
+    """(action, reason) of the built-in rules, before usage constraints."""
     has_statistics = facts.state_class is not None
     if _is_noise(facts):
         # excluding would also drop long-term statistics, so keep 1 day for those
@@ -189,6 +256,7 @@ def recommend(
     total_bytes: int,
     dismissed: str | None = None,
     group_saving: int = 0,
+    policy: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Recommendation for one entity, including why and what it costs.
 
@@ -216,7 +284,7 @@ def recommend(
         return result
 
     threshold = max(MIN_BYTES, total_bytes * MIN_SHARE)
-    rule = base_rule(facts)
+    rule = base_rule(facts, policy)
     if rule is None:
         return result
     action, reason = rule
@@ -260,17 +328,54 @@ def group_key(facts: EntityFacts, reason: str) -> str:
     return f"{reason}:{facts.platform or facts.domain}"
 
 
-def group_savings(all_facts: list[EntityFacts]) -> dict[str, int]:
+def group_savings(
+    all_facts: list[EntityFacts], policy: Mapping[str, str] | None = None
+) -> dict[str, int]:
     """What each rule would save per integration, before usage constraints."""
     totals: dict[str, int] = {}
     for facts in all_facts:
-        rule = base_rule(facts)
+        rule = base_rule(facts, policy)
         if rule is None:
             continue
         action, reason = rule
         key = group_key(facts, reason)
         totals[key] = totals.get(key, 0) + saving(facts, action)
     return totals
+
+
+def kind_summary(
+    all_facts: list[EntityFacts], policy: Mapping[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Per kind: how many entities match and what the current rule would save.
+
+    The saving ignores usage constraints and current settings; it shows the
+    size of the kind, the inbox shows what is actually recommended.
+    """
+    counts = dict.fromkeys(KINDS, 0)
+    sizes = dict.fromkeys(KINDS, 0)
+    savings = dict.fromkeys(KINDS, 0)
+    for facts in all_facts:
+        rule = builtin_rule(facts)
+        if rule is None:
+            continue
+        kind = REASON_KIND[rule[1]]
+        counts[kind] += 1
+        sizes[kind] += facts.est_state_bytes
+        effective = base_rule(facts, policy)
+        if effective is not None and STRICTNESS[facts.current] < STRICTNESS[effective[0]]:
+            savings[kind] += saving(facts, effective[0])
+    return [
+        {
+            "kind": kind,
+            "default": KIND_DEFAULTS[kind],
+            "value": (policy or {}).get(kind),
+            "statistics_only": kind in KINDS_WITH_STATISTICS,
+            "entities": counts[kind],
+            "bytes": sizes[kind],
+            "saving": savings[kind],
+        }
+        for kind in KINDS
+    ]
 
 
 def mark_top(sizes: dict[str, int]) -> set[str]:

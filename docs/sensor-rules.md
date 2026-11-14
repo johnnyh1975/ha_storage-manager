@@ -13,6 +13,9 @@ Storage Manager recommends a shorter history per entity. Since 0.4 it also recog
 
 ## Rules
 
+Since 0.5 every kind can be set to another tier or switched off under *Database → Rules by kind of sensor*. The rules only change the recommendations; nothing is applied until it is accepted and applied. Power and energy meters cannot be set to "don't record" because that would drop their statistics; for other kinds, entities with statistics keep 1 day instead.
+
+
 | Kind | Recognised by | Recommendation | Why |
 |---|---|---|---|
 | Diagnostic values | entity category *diagnostic*, signal strength, RSSI, SSID, IP, uptime, firmware … | don't record; 1 day with statistics | history practically never used |

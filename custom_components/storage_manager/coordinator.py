@@ -168,6 +168,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage: dict[str, usage_mod.EntityUsage] = {}
         self._usage_at = 0.0
         self._last_advice: dict[str, dict[str, Any]] = {}
+        self._kinds: list[dict[str, Any]] = []
+        self._potential: dict[str, int] | None = None
+        self._potential_key: tuple[Any, ...] | None = None
         self._analysis_control: database.AnalysisControl | None = None
         self.analysis_progress: dict[str, Any] | None = None
         self._progress_sent = 0.0
@@ -320,6 +323,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "total": backup_deletable + file_safe + orphans["entity_bytes"] + freelist,
             },
             "recorder": self.recorder_status(),
+            "retention_potential": await self._async_retention_potential(),
             "freed_total": self.store.data.freed_total,
             "busy": self.busy,
         }
@@ -771,9 +775,11 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         keep_days = int(get_instance(self.hass).keep_days)
         advice: dict[str, dict[str, Any]] = {}
         all_facts = {e: self._facts(e, entities[e]) for e in candidates}
-        groups = advisor.group_savings(list(all_facts.values()))
+        policy = self.store.data.kind_rules
+        groups = advisor.group_savings(list(all_facts.values()), policy)
+        self._kinds = advisor.kind_summary(list(all_facts.values()), policy)
         for entity_id, facts in all_facts.items():
-            rule = advisor.base_rule(facts)
+            rule = advisor.base_rule(facts, policy)
             advice[entity_id] = advisor.recommend(
                 facts,
                 usage.get(entity_id),
@@ -781,6 +787,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 total_bytes=total,
                 dismissed=self.store.data.dismissed.get(entity_id),
                 group_saving=groups.get(advisor.group_key(facts, rule[1]), 0) if rule else 0,
+                policy=policy,
             )
             advice[entity_id]["facts"] = {
                 "state_class": facts.state_class,
@@ -885,6 +892,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "rest_bytes": sum(r["est_bytes"] for r in rest),
             "inbox": inbox,
             "inbox_saving": sum(a["saving"] for a in inbox),
+            "kinds": self._kinds,
             "dismissed_count": len(data.dismissed),
             "size_history": data.db_samples,
             "changes": [
@@ -907,6 +915,53 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "info": info,
             "keep_days": get_instance(self.hass).keep_days,
         }
+
+    async def _async_retention_potential(self) -> dict[str, int] | None:
+        """What the open retention recommendations would free, for the overview."""
+        analysis = self.store.data.analysis
+        if not analysis or not analysis.get("entities"):
+            return None
+        data = self.store.data
+        key = (
+            analysis.get("generated_at"),
+            tuple(sorted(data.retention.items())),
+            tuple(data.excluded),
+            tuple(sorted(data.dismissed.items())),
+            tuple(sorted(data.kind_rules.items())),
+            int(time.time() // USAGE_MAX_AGE),
+        )
+        if key != self._potential_key:
+            try:
+                advice = await self.async_advice()
+            except Exception:  # noqa: BLE001 - the overview must not fail on it
+                _LOGGER.debug("Retention potential not available", exc_info=True)
+                return None
+            open_items = [a for a in advice.values() if a.get("action") and not a.get("conflict")]
+            self._potential = {
+                "count": len(open_items),
+                "bytes": sum(int(a.get("saving") or 0) for a in open_items),
+            }
+            self._potential_key = key
+        return self._potential
+
+    def set_kind_rules(self, rules: dict[str, str | None]) -> dict[str, str]:
+        """Change the rules per kind of sensor; None goes back to the built-in rule."""
+        current = dict(self.store.data.kind_rules)
+        for kind, value in rules.items():
+            if kind not in advisor.KINDS:
+                raise HomeAssistantError(f"Unknown kind: {kind}")
+            if value is None or value == advisor.KIND_DEFAULTS[kind]:
+                current.pop(kind, None)
+                continue
+            if value not in advisor.POLICY_VALUES:
+                raise HomeAssistantError(f"Unknown value: {value}")
+            if value == advisor.EXCLUDED and kind in advisor.KINDS_WITH_STATISTICS:
+                raise HomeAssistantError(f"{kind}: not recording would drop the statistics")
+            current[kind] = value
+        self.store.data.kind_rules = current
+        self.store.schedule_save()
+        self._potential_key = None
+        return current
 
     def dismiss(self, entity_ids: list[str], undo: bool = False) -> None:
         """Hide (or show again) recommendations."""
@@ -1001,7 +1056,18 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "targets": ["repack"],
                 }
             )
-        top = self._top_entities()
+        potential = self.data.get("retention_potential")
+        top = None if potential and potential["bytes"] else self._top_entities()
+        if potential and potential["bytes"] >= 1024 * 1024:
+            recs.append(
+                {
+                    "id": "retention",
+                    "bytes": potential["bytes"],
+                    "count": potential["count"],
+                    "action": "navigate",
+                    "view": "database",
+                }
+            )
         if top:
             recs.append(
                 {

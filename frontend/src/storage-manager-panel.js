@@ -30,6 +30,7 @@ const REC_ICONS = {
   statistics: "mdi:chart-box-outline",
   repack: "mdi:database-refresh",
   top_entities: "mdi:database-alert",
+  retention: "mdi:calendar-clock",
 };
 
 const svgIcon = (path) => html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
@@ -470,6 +471,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         <h2>${t("reclaim_title")}<span class="spacer"></span>
           ${data.reclaimable.total > 0
             ? html`<span class="muted small">${t("reclaim_total", { bytes: bytes(data.reclaimable.total, this.lang) })}</span>`
+            : nothing}
+          ${data.retention_potential?.bytes
+            ? html`<span class="muted small">&nbsp;· ${t("reclaim_retention", { bytes: bytes(data.retention_potential.bytes, this.lang) })}</span>`
             : nothing}
         </h2>
         ${recommendations.length === 0

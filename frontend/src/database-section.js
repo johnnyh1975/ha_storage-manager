@@ -165,7 +165,7 @@ export const DatabaseSection = (Base) =>
           ? html`<div class="card"><div class="center"><span class="spinner"></span></div></div>`
           : !ent.analysis_at
           ? html`<div class="card"><p class="muted">${t("analysis_needed")}</p></div>`
-          : html`${this._renderInbox(ent)} ${this._renderExplorer(ent)}`}
+          : html`${this._renderInbox(ent)} ${this._renderKinds(ent)} ${this._renderExplorer(ent)}`}
 
         ${this._healthCard("database")}
         ${this._renderSettings(ent)}
@@ -206,6 +206,64 @@ export const DatabaseSection = (Base) =>
           ? html`<button class="btn" @click=${() => this._dismiss([], true)}>${t("inbox_show_dismissed", { n: ent.dismissed_count })}</button>`
           : nothing}
       </div>`;
+    }
+
+    // ------------------------------------------------------- kinds of sensor
+
+    _renderKinds(ent) {
+      const t = this.t;
+      const kinds = ent.kinds || [];
+      if (!kinds.length) return nothing;
+      const open = !!this._kindsOpen;
+      const changed = kinds.filter((k) => k.value).length;
+      return html`<div class="card">
+        <h2><button class="linklike group-toggle" aria-expanded=${open ? "true" : "false"}
+            @click=${() => (this._kindsOpen = !open)}>
+          <span class="chev">${open ? "▾" : "▸"}</span>${t("kinds_title")}</button>
+          <span class="spacer"></span>
+          ${changed ? html`<span class="tag">${t("kinds_changed", { n: changed })}</span>` : nothing}
+        </h2>
+        ${open
+          ? html`<p class="muted small" style="margin-top:0">${t("kinds_hint")}</p>
+              ${kinds.map((k) => this._renderKind(k))}`
+          : html`<p class="muted small" style="margin:0">${t("kinds_summary")}</p>`}
+      </div>`;
+    }
+
+    _renderKind(k) {
+      const t = this.t;
+      const values = ["7", "3", "1", "drop", ...(k.statistics_only ? [] : ["excluded"]), "off"];
+      const label = (v) => (v === "off" ? t("kind_off") : this._tierLabel(v));
+      return html`<div class="list-row kind-row">
+        <div>
+          <div>${t(`kind_${k.kind}`)}</div>
+          <div class="muted small">${t(`kind_${k.kind}_desc`)}</div>
+          <div class="muted small">${k.entities
+            ? t(k.saving ? "kind_stats" : "kind_stats_nosave", { n: number(k.entities, this.lang), bytes: bytes(k.bytes, this.lang), saving: bytes(k.saving, this.lang) })
+            : t("kind_none")}</div>
+        </div>
+        <div></div>
+        <div>
+          <select aria-label=${t(`kind_${k.kind}`)} ?disabled=${!!this._working}
+            @change=${(e) => this._setKind(k.kind, e.target.value || null)}>
+            <option value="" ?selected=${!k.value}>${t("kind_default", { tier: label(k.default) })}</option>
+            ${values.map((v) => html`<option value=${v} ?selected=${k.value === v}>${label(v)}</option>`)}
+          </select>
+        </div>
+      </div>`;
+    }
+
+    async _setKind(kind, value) {
+      this._working = "kinds";
+      try {
+        await this._ws("kind_rules", { rules: { [kind]: value } });
+        await Promise.all([this._loadEntities(), this._loadOverview()]);
+        this._showToast(this.t("kinds_saved"));
+      } catch (err) {
+        this._showToast(this.t("error", { msg: err.message }));
+      } finally {
+        this._working = null;
+      }
     }
 
     _toggleGroup(key) {

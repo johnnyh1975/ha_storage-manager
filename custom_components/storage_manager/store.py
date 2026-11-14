@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from . import advisor
 from .const import (
     ALL_TIERS,
     HISTORY_MAX,
@@ -58,6 +59,8 @@ class ManagerData:
     integrity: dict[str, Any] | None = None
     # user confirmations for backup protection {key: iso date}
     attestations: dict[str, str] = field(default_factory=dict)
+    # kind of sensor -> tier or "off" (see advisor.KINDS); missing = built-in rule
+    kind_rules: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -88,6 +91,11 @@ class ManagerData:
             db_samples=[list(x) for x in data.get("db_samples") or [] if len(x) == 3],
             integrity=data.get("integrity"),
             attestations={str(k): str(v) for k, v in (data.get("attestations") or {}).items()},
+            kind_rules={
+                str(k): str(v)
+                for k, v in (data.get("kind_rules") or {}).items()
+                if k in advisor.KINDS and v in advisor.POLICY_VALUES
+            },
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -108,6 +116,7 @@ class ManagerData:
             "db_samples": self.db_samples,
             "integrity": self.integrity,
             "attestations": self.attestations,
+            "kind_rules": self.kind_rules,
         }
 
 

@@ -26,7 +26,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.storage import Store
 import probatio as vol
 
-from . import database, files
+from . import advisor, database, files
 from .const import ALL_TIERS, DOMAIN, SIGNAL_UPDATED
 from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
 from .health import ATTESTATIONS
@@ -113,6 +113,12 @@ async def _dismiss(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         await c.async_advice()
     c.dismiss(msg.get("entity_ids") or [], undo=msg.get("undo", False))
     return {"dismissed": len(c.store.data.dismissed)}
+
+
+async def _kind_rules(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    rules = c.set_kind_rules(msg["rules"])
+    await c.async_refresh()
+    return {"kind_rules": rules}
 
 
 async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -273,6 +279,16 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("undo", default=False): bool,
         },
         _dismiss,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/kind_rules",
+            vol.Required("rules"): {
+                vol.In(advisor.KINDS): vol.Any(None, vol.In(advisor.POLICY_VALUES))
+            },
+        },
+        _kind_rules,
     )
     _register(
         hass,
