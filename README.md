@@ -79,11 +79,11 @@
 
 | Database | Detail | Mobile |
 |---|---|---|
-| ![Database view with recommendations inbox and top causes](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/database.png) | ![Detail sheet of one entity](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/detail.png) | ![Panel on a phone](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/mobile.png) |
+| ![Database view with recommendations, top causes and database health](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/database.png) | ![Detail sheet with rows per day and the attributes that keep changing](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/detail.png) | ![Overview on a phone (example data)](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/mobile.png) |
 
-| Before deleting | Changing attributes | Backup protection |
+| Before deleting | Backup protection | Files and repack |
 |---|---|---|
-| ![Preview with free-space check, integrity check and safety backup](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/safety.png) | ![Detail sheet listing the attributes that keep changing](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/drivers.png) | ![Backup protection checks](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/backup-health.png) |
+| ![Preview with free-space check, integrity check and safety backup](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/safety.png) | ![Backup protection checks](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/backup-health.png) | ![Files tab with caches, logs and the repack plan (example data)](https://raw.githubusercontent.com/johnnyh1975/ha_storage-manager/main/docs/images/files.png) |
 
 ---
 
