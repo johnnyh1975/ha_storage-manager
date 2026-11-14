@@ -15,6 +15,14 @@ Storage Manager recommends a shorter history per entity. Since 0.4 it also recog
 
 Since 0.5 every kind can be set to another tier or switched off under *Database → Rules by kind of sensor*. The rules only change the recommendations; nothing is applied until it is accepted and applied. Power and energy meters cannot be set to "don't record" because that would drop their statistics; for other kinds, entities with statistics keep 1 day instead.
 
+Since 0.6 each kind has a switch *Set up new sensors of this kind automatically*. It applies only to entities created in the entity registry after the switch was turned on:
+
+- The rule is applied after the first analysis that recognises the sensor (the analysis runs daily). Some kinds depend on how often a sensor reports, which is only known after it has reported for a while.
+- No minimum size applies, and nothing is purged right away; the nightly retention does that.
+- The user's own settings and dismissals, use in history-reading helpers, dashboards and the energy dashboard come first, exactly as for recommendations.
+- Each entity is set up automatically only once and can be changed freely afterwards. "Don't record" needs the package file and takes effect after a restart.
+- Entities without a registry entry (YAML entities without `unique_id`) have no creation date and are never set up automatically.
+
 
 | Kind | Recognised by | Recommendation | Why |
 |---|---|---|---|

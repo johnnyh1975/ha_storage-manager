@@ -257,6 +257,7 @@ def recommend(
     dismissed: str | None = None,
     group_saving: int = 0,
     policy: Mapping[str, str] | None = None,
+    ignore_size: bool = False,
 ) -> dict[str, Any]:
     """Recommendation for one entity, including why and what it costs.
 
@@ -288,7 +289,7 @@ def recommend(
     if rule is None:
         return result
     action, reason = rule
-    alone = facts.est_state_bytes >= threshold
+    alone = ignore_size or facts.est_state_bytes >= threshold
     if not alone and group_saving < threshold:
         return result
     result["group"] = group_key(facts, reason)

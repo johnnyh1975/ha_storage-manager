@@ -398,12 +398,16 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._usage_at = 0.0
             self.store.schedule_save()
-            return result
         finally:
             self.analysis_running = False
             self.analysis_progress = None
             self._analysis_control = None
             await self.async_refresh()
+        try:
+            await self.async_apply_kind_auto()
+        except Exception:  # noqa: BLE001 - the analysis itself succeeded
+            _LOGGER.warning("Could not apply the rules to new sensors", exc_info=True)
+        return result
 
     # ------------------------------------------------------------------
     # recorder: retention tiers and exclusions
@@ -531,6 +535,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         excluded: dict[str, bool] | None = None,
         purge_now: bool = True,
         skip_backup: bool = False,
+        log_action: str = "recorder_changes",
+        log_details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Apply a draft from the panel or an action call.
 
@@ -609,7 +615,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._schedule_reanalysis()
         changed = len(retention) + len(excluded)
         if changed and not result["blocked"] and not (purge_now and any(by_tier.values())):
-            self.store.log("recorder_changes", 0, {"entities": changed})
+            self.store.log(log_action, 0, {"entities": changed, **(log_details or {})})
         for entity_id in [*retention, *excluded]:
             self.store.data.dismissed.pop(entity_id, None)
         self._usage_at = 0.0
@@ -778,6 +784,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         policy = self.store.data.kind_rules
         groups = advisor.group_savings(list(all_facts.values()), policy)
         self._kinds = advisor.kind_summary(list(all_facts.values()), policy)
+        for item in self._kinds:
+            item["auto"] = self.store.data.kind_auto.get(item["kind"])
         for entity_id, facts in all_facts.items():
             rule = advisor.base_rule(facts, policy)
             advice[entity_id] = advisor.recommend(
@@ -943,6 +951,93 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
             self._potential_key = key
         return self._potential
+
+    async def async_apply_kind_auto(self) -> list[str]:
+        """Give new sensors their kind's rule where the user switched that on.
+
+        New means created after the switch was turned on. The rule needs the
+        analysis to recognise the kind (some kinds depend on how often the
+        sensor reports), so it is applied after the first analysis that sees
+        it, without a size threshold and without an immediate purge. Usage
+        protection, dismissals and the user's own settings come first, and no
+        entity gets an automatic setting twice.
+        """
+        data = self.store.data
+        auto = {
+            kind: since
+            for kind, since in data.kind_auto.items()
+            if data.kind_rules.get(kind) != advisor.OFF
+        }
+        entities: dict[str, dict[str, Any]] = (data.analysis or {}).get("entities") or {}
+        if not auto or not entities:
+            return []
+        ent_reg = er.async_get(self.hass)
+        known = self._known_entities()
+        skip = {*data.retention, *data.excluded, *data.auto_applied, *data.dismissed}
+        policy = data.kind_rules
+        found: dict[str, advisor.EntityFacts] = {}
+        for entity_id, info in entities.items():
+            if entity_id in skip or entity_id not in known:
+                continue
+            entry = ent_reg.async_get(entity_id)
+            if entry is None:
+                continue
+            facts = self._facts(entity_id, info)
+            rule = advisor.base_rule(facts, policy)
+            if rule is None:
+                continue
+            since = dt_util.parse_datetime(auto.get(advisor.REASON_KIND[rule[1]], ""))
+            if since is not None and entry.created_at >= since:
+                found[entity_id] = facts
+        if not found:
+            return []
+        usage = await self.async_usage(set(found))
+        keep_days = int(get_instance(self.hass).keep_days)
+        retention: dict[str, str] = {}
+        excluded: dict[str, bool] = {}
+        for entity_id, facts in found.items():
+            advice = advisor.recommend(
+                facts,
+                usage.get(entity_id),
+                keep_days=keep_days,
+                total_bytes=0,
+                policy=policy,
+                ignore_size=True,
+            )
+            action = advice.get("action")
+            if not action or advice.get("conflict"):
+                continue
+            if action == advisor.EXCLUDED:
+                if self.packages.available:
+                    excluded[entity_id] = True
+            else:
+                retention[entity_id] = action
+        applied = sorted({*retention, *excluded})
+        if not applied:
+            return []
+        data.auto_applied = sorted({*data.auto_applied, *applied})
+        await self.async_apply_recorder_changes(
+            retention=retention,
+            excluded=excluded,
+            purge_now=False,
+            log_action="auto_rules",
+            log_details={"ids": applied[:LOG_IDS_MAX]},
+        )
+        return applied
+
+    def set_kind_auto(self, auto: dict[str, bool]) -> dict[str, str]:
+        """Switch automatic rules for new sensors per kind on or off."""
+        current = dict(self.store.data.kind_auto)
+        for kind, enabled in auto.items():
+            if kind not in advisor.KINDS:
+                raise HomeAssistantError(f"Unknown kind: {kind}")
+            if not enabled:
+                current.pop(kind, None)
+            elif kind not in current:
+                current[kind] = dt_util.utcnow().isoformat()
+        self.store.data.kind_auto = current
+        self.store.schedule_save()
+        return current
 
     def set_kind_rules(self, rules: dict[str, str | None]) -> dict[str, str]:
         """Change the rules per kind of sensor; None goes back to the built-in rule."""

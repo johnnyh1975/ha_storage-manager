@@ -516,5 +516,6 @@ export const styles = css`
   .btn:disabled { opacity: 0.5; cursor: default; }
   .hint { color: var(--secondary-text-color); margin-top: 2px; }
   .hint::before { content: "💡 "; }
+  .kind-auto { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
   ul.group-members { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
 `;

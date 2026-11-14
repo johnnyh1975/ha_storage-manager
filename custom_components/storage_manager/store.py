@@ -61,6 +61,10 @@ class ManagerData:
     attestations: dict[str, str] = field(default_factory=dict)
     # kind of sensor -> tier or "off" (see advisor.KINDS); missing = built-in rule
     kind_rules: dict[str, str] = field(default_factory=dict)
+    # kind of sensor -> ISO time from which new entities get its rule automatically
+    kind_auto: dict[str, str] = field(default_factory=dict)
+    # entities that got their kind's rule automatically (never applied twice)
+    auto_applied: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -96,6 +100,12 @@ class ManagerData:
                 for k, v in (data.get("kind_rules") or {}).items()
                 if k in advisor.KINDS and v in advisor.POLICY_VALUES
             },
+            kind_auto={
+                str(k): str(v)
+                for k, v in (data.get("kind_auto") or {}).items()
+                if k in advisor.KINDS and dt_util.parse_datetime(str(v)) is not None
+            },
+            auto_applied=sorted({str(e) for e in data.get("auto_applied") or []}),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -117,6 +127,8 @@ class ManagerData:
             "integrity": self.integrity,
             "attestations": self.attestations,
             "kind_rules": self.kind_rules,
+            "kind_auto": self.kind_auto,
+            "auto_applied": self.auto_applied,
         }
 
 

@@ -461,6 +461,10 @@ const de = {
   kind_attributes_desc: "Der Speicher steckt überwiegend in Attributen, zum Beispiel Vorhersagen oder Listen.",
   kind_frequent: "Sehr häufige Werte",
   kind_frequent_desc: "Alle anderen Sensoren mit einem neuen Wert öfter als alle 5 Minuten.",
+  kind_auto: "Neue Sensoren dieser Art automatisch einstellen",
+  kind_auto_since: "Neue Sensoren werden automatisch eingestellt (seit {date})",
+  kinds_auto_hint: "Automatisch gilt nur für Sensoren, die nach dem Einschalten neu angelegt werden. Sie bekommen die Regel nach der ersten Analyse, die sie erkennt (täglich), ohne Mindestgröße und ohne sofortiges Löschen. Was du selbst eingestellt oder abgelehnt hast, und Verwendung in Dashboards, Helfern und dem Energie-Dashboard haben Vorrang. Jeder Sensor wird nur einmal automatisch eingestellt; danach kannst du ihn frei ändern. „Nicht aufzeichnen“ wirkt erst nach einem Neustart.",
+  action_auto_rules: "Regeln auf neue Sensoren angewendet",
 };
 
 const en = {
@@ -923,6 +927,10 @@ const en = {
   kind_attributes_desc: "Most of the storage is in attributes, for example forecasts or lists.",
   kind_frequent: "Very frequent values",
   kind_frequent_desc: "All other sensors with a new value more often than every 5 minutes.",
+  kind_auto: "Set up new sensors of this kind automatically",
+  kind_auto_since: "New sensors are set up automatically (since {date})",
+  kinds_auto_hint: "Automatic only applies to sensors created after it is switched on. They get the rule after the first analysis that recognises them (daily), with no minimum size and no immediate purge. Your own settings and dismissals, and use in dashboards, helpers and the energy dashboard come first. Each sensor is set up automatically only once; afterwards you can change it freely. “Don't record” takes effect after a restart.",
+  action_auto_rules: "Rules applied to new sensors",
 };
 
 const LANGS = { de, en };

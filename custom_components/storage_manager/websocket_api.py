@@ -116,9 +116,10 @@ async def _dismiss(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
 
 
 async def _kind_rules(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
-    rules = c.set_kind_rules(msg["rules"])
+    rules = c.set_kind_rules(msg.get("rules") or {})
+    auto = c.set_kind_auto(msg.get("auto") or {})
     await c.async_refresh()
-    return {"kind_rules": rules}
+    return {"kind_rules": rules, "kind_auto": auto}
 
 
 async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -284,9 +285,10 @@ def async_setup(hass: HomeAssistant) -> None:
         hass,
         {
             "type": f"{DOMAIN}/kind_rules",
-            vol.Required("rules"): {
+            vol.Optional("rules"): {
                 vol.In(advisor.KINDS): vol.Any(None, vol.In(advisor.POLICY_VALUES))
             },
+            vol.Optional("auto"): {vol.In(advisor.KINDS): bool},
         },
         _kind_rules,
     )

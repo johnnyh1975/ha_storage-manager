@@ -225,6 +225,7 @@ export const DatabaseSection = (Base) =>
         </h2>
         ${open
           ? html`<p class="muted small" style="margin-top:0">${t("kinds_hint")}</p>
+              <p class="muted small">${t("kinds_auto_hint")}</p>
               ${kinds.map((k) => this._renderKind(k))}`
           : html`<p class="muted small" style="margin:0">${t("kinds_summary")}</p>`}
       </div>`;
@@ -241,6 +242,14 @@ export const DatabaseSection = (Base) =>
           <div class="muted small">${k.entities
             ? t(k.saving ? "kind_stats" : "kind_stats_nosave", { n: number(k.entities, this.lang), bytes: bytes(k.bytes, this.lang), saving: bytes(k.saving, this.lang) })
             : t("kind_none")}</div>
+          <label class="small kind-auto">
+            <input type="checkbox" .checked=${!!k.auto && k.value !== "off"}
+              ?disabled=${!!this._working || k.value === "off"}
+              @change=${(e) => this._setKindAuto(k.kind, e.target.checked)} />
+            ${k.auto && k.value !== "off"
+              ? t("kind_auto_since", { date: dateTime(k.auto, this.lang) })
+              : t("kind_auto")}
+          </label>
         </div>
         <div></div>
         <div>
@@ -253,10 +262,18 @@ export const DatabaseSection = (Base) =>
       </div>`;
     }
 
-    async _setKind(kind, value) {
+    _setKind(kind, value) {
+      return this._sendKinds({ rules: { [kind]: value } });
+    }
+
+    _setKindAuto(kind, enabled) {
+      return this._sendKinds({ auto: { [kind]: enabled } });
+    }
+
+    async _sendKinds(payload) {
       this._working = "kinds";
       try {
-        await this._ws("kind_rules", { rules: { [kind]: value } });
+        await this._ws("kind_rules", payload);
         await Promise.all([this._loadEntities(), this._loadOverview()]);
         this._showToast(this.t("kinds_saved"));
       } catch (err) {

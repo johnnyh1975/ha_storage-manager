@@ -106,7 +106,7 @@ async def test_kind_rules_and_overview(hass: HomeAssistant, hass_ws_client) -> N
         assert await coordinator._async_retention_potential() is coordinator._potential
 
         res = await _ws(client, {"type": f"{DOMAIN}/kind_rules", "rules": {"noise": "off"}})
-        assert res["result"] == {"kind_rules": {"noise": "off"}}
+        assert res["result"] == {"kind_rules": {"noise": "off"}, "kind_auto": {}}
         rows = await entities()
         assert "sensor.kitchen_rssi" not in [a["entity_id"] for a in rows["inbox"]]
         after = coordinator.data["retention_potential"]
@@ -115,7 +115,7 @@ async def test_kind_rules_and_overview(hass: HomeAssistant, hass_ws_client) -> N
 
         # back to the built-in rule: None or the default value
         res = await _ws(client, {"type": f"{DOMAIN}/kind_rules", "rules": {"noise": None}})
-        assert res["result"] == {"kind_rules": {}}
+        assert res["result"]["kind_rules"] == {}
         coordinator.set_kind_rules({"power": "7"})
         assert coordinator.set_kind_rules({"power": "3"}) == {}
 
@@ -158,3 +158,132 @@ async def test_potential_survives_errors(hass: HomeAssistant) -> None:
     coordinator.store.data.analysis = {"generated_at": 1, "entities": {"sensor.a": {"rows": 1}}}
     with patch.object(coordinator, "async_advice", side_effect=RuntimeError("boom")):
         assert await coordinator._async_retention_potential() is None
+
+
+async def test_new_sensors_get_their_rule(hass: HomeAssistant, hass_ws_client) -> None:
+    """Only sensors created after the switch get the rule, once, without purging."""
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    from .conftest import setup_entry
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    reg = er.async_get(hass)
+    old = reg.async_get_or_create("sensor", "sm_test", "old", suggested_object_id="old_rssi")
+    client = await hass_ws_client(hass)
+    res = await _ws(client, {"type": f"{DOMAIN}/kind_rules", "auto": {"noise": True}})
+    assert set(res["result"]["kind_auto"]) == {"noise"}
+    new = reg.async_get_or_create("sensor", "sm_test", "new", suggested_object_id="new_rssi")
+    mine = reg.async_get_or_create("sensor", "sm_test", "mine", suggested_object_id="mine_rssi")
+    coordinator.store.data.retention[mine.entity_id] = "7"
+    for i in range(5):
+        for ent in (old, new, mine):
+            hass.states.async_set(ent.entity_id, str(-60 - i), {"state_class": "measurement"})
+    await async_wait_recording_done(hass)
+
+    with patch.object(coord_mod.database, "async_purge_entities") as purge:
+        await coordinator.async_run_analysis()
+    purge.assert_not_called()
+    data = coordinator.store.data
+    # statistics are kept: a diagnostic value with statistics gets 1 day
+    assert data.retention.get(new.entity_id) == "1"
+    assert old.entity_id not in data.retention
+    assert data.retention[mine.entity_id] == "7"
+    assert data.auto_applied == [new.entity_id]
+    log = data.history[-1]
+    assert log["action"] == "auto_rules" and log["details"]["ids"] == [new.entity_id]
+
+    # never twice: the user may change it back afterwards
+    data.retention.pop(new.entity_id)
+    assert await coordinator.async_apply_kind_auto() == []
+    assert new.entity_id not in data.retention
+
+    rows = (await _ws(client, {"type": f"{DOMAIN}/entities"}))["result"]
+    noise = next(k for k in rows["kinds"] if k["kind"] == "noise")
+    assert noise["auto"] == data.kind_auto["noise"]
+
+    # switched off kinds and switched off automation do nothing
+    data.auto_applied = []
+    coordinator.set_kind_rules({"noise": "off"})
+    assert await coordinator.async_apply_kind_auto() == []
+    coordinator.set_kind_rules({"noise": None})
+    coordinator.set_kind_auto({"noise": False})
+    assert await coordinator.async_apply_kind_auto() == []
+    with pytest.raises(HomeAssistantError, match="Unknown kind"):
+        coordinator.set_kind_auto({"bogus": True})
+
+
+async def test_auto_exclusion_needs_packages(hass: HomeAssistant) -> None:
+    """'Don't record' is only set up automatically when the package file works."""
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    from .conftest import setup_entry
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    coordinator.set_kind_auto({"noise": True})
+    ent = er.async_get(hass).async_get_or_create(
+        "sensor", "sm_test", "x", suggested_object_id="plain_rssi"
+    )
+    hass.states.async_set(ent.entity_id, "1")
+    await async_wait_recording_done(hass)
+    await coordinator.async_run_analysis()
+    data = coordinator.store.data
+    if coordinator.packages.available:
+        assert ent.entity_id in data.excluded
+    else:
+        assert ent.entity_id not in data.excluded and not data.auto_applied
+    with patch.object(coordinator, "async_apply_kind_auto", side_effect=RuntimeError("x")):
+        await coordinator.async_run_analysis()  # analysis still succeeds
+
+
+def test_store_auto_fields() -> None:
+    """Automatic rules survive a restart; broken entries are dropped."""
+    data = ManagerData.from_dict(
+        {
+            "kind_auto": {"power": "2026-11-14T10:00:00+00:00", "gps": "never", "bogus": "x"},
+            "auto_applied": ["sensor.b", "sensor.a", "sensor.a"],
+        }
+    )
+    assert data.kind_auto == {"power": "2026-11-14T10:00:00+00:00"}
+    assert data.auto_applied == ["sensor.a", "sensor.b"]
+    assert data.as_dict()["kind_auto"] == data.kind_auto
+
+
+async def test_auto_respects_usage_and_registry(hass: HomeAssistant) -> None:
+    """Sensors without a registry entry or read by a helper are left alone."""
+    from homeassistant.helpers import entity_registry as er
+
+    from custom_components.storage_manager.usage import EntityUsage
+
+    from .conftest import setup_entry
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    coordinator.set_kind_auto({"noise": True})
+    reg = er.async_get(hass)
+    read = reg.async_get_or_create("sensor", "sm_test", "r", suggested_object_id="read_rssi")
+    plain = reg.async_get_or_create("sensor", "sm_test", "p", suggested_object_id="plain_rssi")
+    hass.states.async_set("sensor.loose_rssi", "1")
+    for ent in (read, plain):
+        hass.states.async_set(ent.entity_id, "1")
+    info = {"rows": 10, "rows_24h": 10, "est_bytes": 10, "est_state_bytes": 10}
+    coordinator.store.data.analysis = {
+        "generated_at": 1,
+        "entities": {e: dict(info) for e in ("sensor.loose_rssi", read.entity_id, plain.entity_id)},
+    }
+    usage = {read.entity_id: EntityUsage(helpers=[{"domain": "statistics", "title": "x"}])}
+    with (
+        patch.object(coordinator, "async_usage", return_value=usage),
+        patch.object(type(coordinator.packages), "available", True),
+        patch.object(coordinator, "_async_sync_package", return_value=True),
+    ):
+        applied = await coordinator.async_apply_kind_auto()
+    assert applied == [plain.entity_id]
+    assert coordinator.store.data.excluded == [plain.entity_id]
