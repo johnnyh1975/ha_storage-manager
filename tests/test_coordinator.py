@@ -150,13 +150,15 @@ async def test_retention_scheduler_and_estimate(hass: HomeAssistant) -> None:
     async def _purge(hass, entity_ids, keep_days):
         calls.append((sorted(entity_ids), keep_days))
 
-    with patch.object(coord_mod.database, "async_purge_entities", _purge):
+    # no re-analysis: it would replace the hand-made analysis checked below
+    with (
+        patch.object(coord_mod.database, "async_purge_entities", _purge),
+        patch.object(coordinator, "_schedule_reanalysis"),
+    ):
         result = await coordinator.async_apply_recorder_changes(
             retention={"sensor.a": "7", "sensor.b": "drop", "sensor.e": "1", "sensor.unknown": "3"}
         )
         assert result["restart_required"] is False
-        # the re-analysis after the purge runs in the background; let it finish
-        await hass.async_block_till_done(wait_background_tasks=True)
         calls.clear()
         await coordinator.async_run_retention(include_drop=True, include_daily=False)
         assert calls == [(["sensor.b"], 0)]
