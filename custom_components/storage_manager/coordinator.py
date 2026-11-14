@@ -286,15 +286,18 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.analysis_running:
             return
 
-        async def _run() -> None:
-            try:
-                await self.async_run_analysis()
-            except database.AnalysisCancelled:
-                _LOGGER.debug("Background analysis stopped")
-            except Exception as err:  # noqa: BLE001 - e.g. recorder shutting down
-                _LOGGER.debug("Background analysis failed: %s", err)
+        self.config_entry.async_create_background_task(
+            self.hass, self._async_analysis_quietly(), f"{DOMAIN}_analysis"
+        )
 
-        self.config_entry.async_create_background_task(self.hass, _run(), f"{DOMAIN}_analysis")
+    async def _async_analysis_quietly(self) -> None:
+        """Background analysis: a stop or a shutting-down recorder is not an error."""
+        try:
+            await self.async_run_analysis()
+        except database.AnalysisCancelled:
+            _LOGGER.debug("Background analysis stopped")
+        except Exception as err:  # noqa: BLE001 - e.g. recorder shutting down
+            _LOGGER.debug("Background analysis failed: %s", err)
 
     def stop_analysis(self) -> bool:
         """Ask a running analysis to stop after the current chunk."""
@@ -569,7 +572,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         async def _run() -> None:
             await database.async_wait_idle(self.hass)
             if not self.analysis_running:
-                await self.async_run_analysis()
+                await self._async_analysis_quietly()
 
         self.config_entry.async_create_background_task(self.hass, _run(), f"{DOMAIN}_reanalysis")
 

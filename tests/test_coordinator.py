@@ -155,6 +155,8 @@ async def test_retention_scheduler_and_estimate(hass: HomeAssistant) -> None:
             retention={"sensor.a": "7", "sensor.b": "drop", "sensor.e": "1", "sensor.unknown": "3"}
         )
         assert result["restart_required"] is False
+        # the re-analysis after the purge runs in the background; let it finish
+        await hass.async_block_till_done(wait_background_tasks=True)
         calls.clear()
         await coordinator.async_run_retention(include_drop=True, include_daily=False)
         assert calls == [(["sensor.b"], 0)]
