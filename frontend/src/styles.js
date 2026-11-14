@@ -514,4 +514,7 @@ export const styles = css`
   .check-line { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; cursor: pointer; }
   .check-line input { width: 18px; height: 18px; margin-top: 2px; }
   .btn:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--secondary-text-color); margin-top: 2px; }
+  .hint::before { content: "💡 "; }
+  ul.group-members { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
 `;

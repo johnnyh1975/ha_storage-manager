@@ -79,6 +79,49 @@ ALL_CLEAN_TARGETS = (
 DB_DELETE_TARGETS = ("orphans", "statistics", "purge")
 
 
+INBOX_GROUP_MIN = 4  # from this many entities with the same rule, one inbox line
+
+
+def _build_inbox(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recommendations, conflicts first; many of one kind become one line."""
+    singles: list[dict[str, Any]] = []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        advice = row["advice"]
+        if not advice or not advice.get("action"):
+            continue
+        item = {"entity_id": row["entity_id"], "name": row["name"], **advice}
+        key = advice.get("group")
+        if key and not advice.get("conflict"):
+            grouped.setdefault(f"{key}:{advice['action']}", []).append(item)
+        else:
+            singles.append(item)
+    for members in grouped.values():
+        if len(members) < INBOX_GROUP_MIN:
+            singles.extend(members)
+            continue
+        members.sort(key=lambda m: m["saving"], reverse=True)
+        first = members[0]
+        singles.append(
+            {
+                "entity_id": first["entity_id"],
+                "name": first["name"],
+                "group": first["group"],
+                "integration": first["group"].split(":", 1)[1],
+                "reason": first["reason"],
+                "action": first["action"],
+                "hint": next((m["hint"] for m in members if m.get("hint")), None),
+                "notes": sorted({n for m in members for n in m.get("notes") or []}),
+                "entity_ids": [m["entity_id"] for m in members],
+                "count": len(members),
+                "saving": sum(m["saving"] for m in members),
+                "facts": first.get("facts"),
+                "used": None,
+            }
+        )
+    return sorted(singles, key=lambda a: (not a.get("conflict"), -a["saving"]))
+
+
 def _needs_backup(db_targets: list[str]) -> bool:
     """Outdated rows go anyway in Home Assistant's nightly purge: no backup for those."""
     return any(t != "purge" for t in db_targets)
@@ -703,6 +746,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             stat_rows=int(info.get("stat_rows", 0)),
             est_attr_bytes=int(info.get("est_attr_bytes", 0)),
             attr_only=int(info.get("attr_only", 0)),
+            platform=entry.platform if entry else None,
+            unit=attrs.get("unit_of_measurement"),
+            source_type=attrs.get("source_type"),
             state_class=attrs.get("state_class") or capabilities.get("state_class"),
             device_class=attrs.get("device_class")
             or (entry.device_class or entry.original_device_class if entry else None),
@@ -724,14 +770,17 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         total = int(sum(i.get("est_bytes", 0) for i in entities.values()))
         keep_days = int(get_instance(self.hass).keep_days)
         advice: dict[str, dict[str, Any]] = {}
-        for entity_id in candidates:
-            facts = self._facts(entity_id, entities[entity_id])
+        all_facts = {e: self._facts(e, entities[e]) for e in candidates}
+        groups = advisor.group_savings(list(all_facts.values()))
+        for entity_id, facts in all_facts.items():
+            rule = advisor.base_rule(facts)
             advice[entity_id] = advisor.recommend(
                 facts,
                 usage.get(entity_id),
                 keep_days=keep_days,
                 total_bytes=total,
                 dismissed=self.store.data.dismissed.get(entity_id),
+                group_saving=groups.get(advisor.group_key(facts, rule[1]), 0) if rule else 0,
             )
             advice[entity_id]["facts"] = {
                 "state_class": facts.state_class,
@@ -816,14 +865,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rows.sort(key=lambda r: (r["est_bytes"], r["rows"]), reverse=True)
         total = sum(r["est_bytes"] for r in rows) or 0
         rest = [r for r in rows if not r["top"]]
-        inbox = sorted(
-            (
-                {"entity_id": r["entity_id"], "name": r["name"], **(r["advice"] or {})}
-                for r in rows
-                if r["advice"] and r["advice"].get("action")
-            ),
-            key=lambda a: (not a.get("conflict"), -a["saving"]),
-        )
+        inbox = _build_inbox(rows)
         return {
             "rows": rows,
             "analysis_at": analysis.get("generated_at"),

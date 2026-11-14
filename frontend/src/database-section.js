@@ -182,7 +182,8 @@ export const DatabaseSection = (Base) =>
     _renderInbox(ent) {
       const t = this.t;
       const items = ent.inbox || [];
-      const pending = items.filter((a) => !this._draft.has(a.entity_id));
+      const ids = (a) => a.entity_ids || [a.entity_id];
+      const pending = items.flatMap(ids).filter((id) => !this._draft.has(id));
       return html`<div class="card">
         <h2>${t("inbox_title")}
           <span class="spacer"></span>
@@ -199,7 +200,7 @@ export const DatabaseSection = (Base) =>
                   : nothing}
                 <span class="spacer"></span>
                 <button class="btn primary" ?disabled=${!pending.length}
-                  @click=${() => this._accept(pending.map((a) => a.entity_id))}>${t("inbox_accept_all", { n: pending.length })}</button>
+                  @click=${() => this._accept(pending)}>${t("inbox_accept_all", { n: pending.length })}</button>
               </div>`}
         ${!items.length && ent.dismissed_count
           ? html`<button class="btn" @click=${() => this._dismiss([], true)}>${t("inbox_show_dismissed", { n: ent.dismissed_count })}</button>`
@@ -207,26 +208,42 @@ export const DatabaseSection = (Base) =>
       </div>`;
     }
 
+    _toggleGroup(key) {
+      const s = new Set(this._openGroups || []);
+      s.has(key) ? s.delete(key) : s.add(key);
+      this._openGroups = s;
+    }
+
     _renderInboxItem(a) {
       const t = this.t;
       const row = this._rowById(a.entity_id);
-      const inDraft = this._draft.get(a.entity_id)?.value === a.action;
+      const ids = a.entity_ids || [a.entity_id];
+      const inDraft = ids.every((id) => this._draft.get(id)?.value === a.action);
+      const open = this._openGroups?.has(`inbox:${a.group}`);
+      const title = a.entity_ids
+        ? html`<button class="linklike t" @click=${() => this._toggleGroup(`inbox:${a.group}`)}>
+            ${t("inbox_group_title", { integration: this._integrationName(a.integration), n: a.count })}</button>`
+        : html`<button class="linklike t" @click=${() => this._openDetail(a.entity_id)}>${a.name}</button>`;
       return html`<div class="rec ${a.conflict ? "conflict" : ""}">
-        <div class="ico"><ha-icon icon=${a.conflict ? "mdi:alert-outline" : "mdi:lightbulb-on-outline"}></ha-icon></div>
+        <div class="ico"><ha-icon icon=${a.conflict ? "mdi:alert-outline" : a.entity_ids ? "mdi:format-list-group" : "mdi:lightbulb-on-outline"}></ha-icon></div>
         <div>
-          <button class="linklike t" @click=${() => this._openDetail(a.entity_id)}>${a.name}</button>
-          <div class="muted small">${this._reasonText(a, row)}</div>
+          ${title}
+          <div class="muted small">${a.entity_ids ? t(`group_reason_${a.reason}`, { n: a.count }) : this._reasonText(a, row)}</div>
+          ${a.hint ? html`<div class="small hint">${t(`hint_${a.hint}`)}</div>` : nothing}
           <div class="chips">
             <span class="tag ${a.conflict ? "warn" : "ok"}">→ ${this._tierLabel(a.action)}</span>
             ${this._noteChips({ ...a, protected: null })}
           </div>
+          ${a.entity_ids && open
+            ? html`<ul class="group-members">${a.entity_ids.map((id) => html`<li><button class="linklike" @click=${() => this._openDetail(id)}>${this._rowById(id)?.name || id}</button></li>`)}</ul>`
+            : nothing}
         </div>
         <div class="act row">
           ${a.saving ? html`<span class="amount">${bytes(a.saving, this.lang)}</span>` : nothing}
           ${inDraft
             ? html`<span class="tag ok">${t("inbox_in_draft")}</span>`
-            : html`<button class="btn" @click=${() => this._dismiss([a.entity_id])}>${t("inbox_dismiss")}</button>
-                <button class="btn primary" @click=${() => this._accept([a.entity_id])}>${t("inbox_accept")}</button>`}
+            : html`<button class="btn" @click=${() => this._dismiss(ids)}>${t("inbox_dismiss")}</button>
+                <button class="btn primary" @click=${() => this._accept(ids)}>${t("inbox_accept")}</button>`}
         </div>
       </div>`;
     }

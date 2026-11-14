@@ -35,6 +35,21 @@ TOP_SHARE = 0.8  # "top causes" = entities that make up 80 % of the size
 ATTR_ONLY_SHARE = 0.8  # rows where only attributes changed, the state did not
 ATTR_ONLY_PER_DAY = 48  # ... and that at least every 30 minutes
 
+# Rules by kind of sensor (see docs/sensor-rules.md for the reasoning)
+POWER_PER_DAY = 96  # power readings more often than every 15 minutes
+ENERGY_PER_DAY = 96
+GPS_PER_DAY = 48
+FAST_PER_DAY = 1440  # more than once a minute: worth throttling at the source
+TIME_PLATFORMS = frozenset({"time_date", "worldclock"})
+TIME_OBJECT_RE = re.compile(
+    r"^(time|date|date_time|time_utc|date_time_utc|date_time_iso|clock|beat)$"
+)
+PRESENCE_RE = re.compile(
+    r"(distance|moving_target|still_target|target_distance|detection_distance)"
+)
+SOURCE_HINTS = {"esphome": "esphome", "powercalc": "powercalc", "shelly": "shelly"}
+THROTTLE_REASONS = frozenset({"power_statistics", "fast_presence", "statistics_kept", "frequent"})
+
 
 @dataclass(frozen=True, kw_only=True)
 class EntityFacts:
@@ -54,6 +69,14 @@ class EntityFacts:
     entity_category: str | None
     current: str  # effective tier incl. "excluded"
     attr_only: int = 0  # rows where only attributes changed
+    platform: str | None = None  # integration that provides the entity
+    unit: str | None = None
+    source_type: str | None = None  # device trackers: gps, router, ...
+
+    @property
+    def domain(self) -> str:
+        """Entity domain."""
+        return self.entity_id.split(".", 1)[0]
 
 
 def saving(facts: EntityFacts, action: str) -> int:
@@ -83,12 +106,53 @@ def _is_noise(facts: EntityFacts) -> bool:
     )
 
 
-def _base_rule(facts: EntityFacts) -> tuple[str, str] | None:
+def _is_time(facts: EntityFacts) -> bool:
+    object_id = facts.entity_id.split(".", 1)[-1]
+    return facts.platform in TIME_PLATFORMS or (
+        facts.domain == "sensor"
+        and facts.platform in (None, "template")
+        and bool(TIME_OBJECT_RE.match(object_id))
+    )
+
+
+def _kind_rule(facts: EntityFacts) -> tuple[str, str] | None:
+    """Rules by kind of sensor; long-term statistics are always kept."""
+    has_statistics = facts.state_class is not None
+    if _is_time(facts):
+        return ("1", "time_statistics") if has_statistics else (EXCLUDED, "time")
+    if (
+        facts.device_class == "power"
+        and facts.state_class == "measurement"
+        and facts.rows_24h >= POWER_PER_DAY
+    ):
+        return "3", "power_statistics"
+    if (
+        facts.device_class == "energy"
+        and facts.state_class in ("total", "total_increasing")
+        and facts.rows_24h >= ENERGY_PER_DAY
+    ):
+        return "7", "energy_statistics"
+    if facts.domain == "device_tracker" and facts.source_type == "gps":
+        return ("7", "gps_tracker") if facts.rows_24h >= GPS_PER_DAY else None
+    object_id = facts.entity_id.split(".", 1)[-1]
+    if (
+        facts.rows_24h >= FAST_PER_DAY
+        and facts.domain in ("sensor", "binary_sensor")
+        and (facts.device_class == "distance" or PRESENCE_RE.search(object_id))
+    ):
+        return "1", "fast_presence"
+    return None
+
+
+def base_rule(facts: EntityFacts) -> tuple[str, str] | None:
     """(action, reason) before usage constraints are applied."""
     has_statistics = facts.state_class is not None
     if _is_noise(facts):
         # excluding would also drop long-term statistics, so keep 1 day for those
         return ("1", "noise_statistics") if has_statistics else (EXCLUDED, "noise")
+    kind = _kind_rule(facts)
+    if kind is not None:
+        return kind
     if (
         facts.rows
         and facts.rows_24h >= ATTR_ONLY_PER_DAY
@@ -124,8 +188,14 @@ def recommend(
     keep_days: int,
     total_bytes: int,
     dismissed: str | None = None,
+    group_saving: int = 0,
 ) -> dict[str, Any]:
-    """Recommendation for one entity, including why and what it costs."""
+    """Recommendation for one entity, including why and what it costs.
+
+    ``group_saving`` is what the same rule saves for all entities of the same
+    integration: many small sensors of one kind are worth it together even if
+    each alone is not.
+    """
     result: dict[str, Any] = {
         "action": None,
         "reason": None,
@@ -145,11 +215,18 @@ def recommend(
         result["protected"] = "history_reader"
         return result
 
-    significant = facts.est_state_bytes >= max(MIN_BYTES, total_bytes * MIN_SHARE)
-    rule = _base_rule(facts)
-    if rule is None or not significant:
+    threshold = max(MIN_BYTES, total_bytes * MIN_SHARE)
+    rule = base_rule(facts)
+    if rule is None:
         return result
     action, reason = rule
+    alone = facts.est_state_bytes >= threshold
+    if not alone and group_saving < threshold:
+        return result
+    result["group"] = group_key(facts, reason)
+    result["group_member"] = not alone
+    if reason in THROTTLE_REASONS and facts.rows_24h >= FAST_PER_DAY:
+        result["hint"] = SOURCE_HINTS.get(facts.platform or "", "generic")
 
     if usage is not None:
         if action == EXCLUDED and usage.energy:
@@ -176,6 +253,24 @@ def recommend(
 
     result.update(action=action, reason=reason, saving=saving(facts, action))
     return result
+
+
+def group_key(facts: EntityFacts, reason: str) -> str:
+    """Rule and integration: the unit that is judged and shown together."""
+    return f"{reason}:{facts.platform or facts.domain}"
+
+
+def group_savings(all_facts: list[EntityFacts]) -> dict[str, int]:
+    """What each rule would save per integration, before usage constraints."""
+    totals: dict[str, int] = {}
+    for facts in all_facts:
+        rule = base_rule(facts)
+        if rule is None:
+            continue
+        action, reason = rule
+        key = group_key(facts, reason)
+        totals[key] = totals.get(key, 0) + saving(facts, action)
+    return totals
 
 
 def mark_top(sizes: dict[str, int]) -> set[str]:
