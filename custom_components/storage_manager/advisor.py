@@ -32,6 +32,8 @@ ATTRIBUTE_SHARE = 0.6  # attributes dominate the entity's size
 MIN_BYTES = 1024 * 1024  # never bother with less than 1 MiB
 MIN_SHARE = 0.005  # ... or less than 0.5 % of the database
 TOP_SHARE = 0.8  # "top causes" = entities that make up 80 % of the size
+ATTR_ONLY_SHARE = 0.8  # rows where only attributes changed, the state did not
+ATTR_ONLY_PER_DAY = 48  # ... and that at least every 30 minutes
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -51,6 +53,7 @@ class EntityFacts:
     device_class: str | None
     entity_category: str | None
     current: str  # effective tier incl. "excluded"
+    attr_only: int = 0  # rows where only attributes changed
 
 
 def saving(facts: EntityFacts, action: str) -> int:
@@ -86,6 +89,12 @@ def _base_rule(facts: EntityFacts) -> tuple[str, str] | None:
     if _is_noise(facts):
         # excluding would also drop long-term statistics, so keep 1 day for those
         return ("1", "noise_statistics") if has_statistics else (EXCLUDED, "noise")
+    if (
+        facts.rows
+        and facts.rows_24h >= ATTR_ONLY_PER_DAY
+        and facts.attr_only / facts.rows >= ATTR_ONLY_SHARE
+    ):
+        return ("3", "attribute_updates") if has_statistics else ("1", "attribute_updates")
     if facts.est_state_bytes and attribute_share(facts) >= ATTRIBUTE_SHARE:
         return ("3", "attributes") if has_statistics else ("1", "attributes")
     if facts.rows_24h >= FREQUENT_PER_DAY:

@@ -107,6 +107,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage: dict[str, usage_mod.EntityUsage] = {}
         self._usage_at = 0.0
         self._last_advice: dict[str, dict[str, Any]] = {}
+        self._analysis_control: database.AnalysisControl | None = None
+        self.analysis_progress: dict[str, Any] | None = None
+        self._progress_sent = 0.0
 
     # ------------------------------------------------------------------
     # setup
@@ -226,6 +229,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "keep_days": get_instance(hass).keep_days,
                 "analysis_at": (analysis or {}).get("generated_at"),
                 "analysis_running": self.analysis_running,
+                "analysis_progress": self.analysis_progress,
                 "freelist_bytes": freelist,
                 "orphan_entities": len(orphans["entities"]),
                 "orphan_entity_bytes": orphans["entity_bytes"],
@@ -268,18 +272,56 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Run the database analysis in the background (no-op when running)."""
         if self.analysis_running:
             return
-        self.config_entry.async_create_background_task(
-            self.hass, self.async_run_analysis(), f"{DOMAIN}_analysis"
-        )
 
-    async def async_run_analysis(self) -> dict[str, Any]:
-        """Analyze the recorder database now."""
+        async def _run() -> None:
+            try:
+                await self.async_run_analysis()
+            except database.AnalysisCancelled:
+                _LOGGER.debug("Background analysis stopped")
+            except Exception as err:  # noqa: BLE001 - e.g. recorder shutting down
+                _LOGGER.debug("Background analysis failed: %s", err)
+
+        self.config_entry.async_create_background_task(self.hass, _run(), f"{DOMAIN}_analysis")
+
+    def stop_analysis(self) -> bool:
+        """Ask a running analysis to stop after the current chunk."""
+        if self._analysis_control is None:
+            return False
+        self._analysis_control.stop.set()
+        return True
+
+    async def async_shutdown(self) -> None:
+        """Stop a running analysis when the entry unloads."""
+        self.stop_analysis()
+        await super().async_shutdown()
+
+    def _on_progress(self, phase: str, share: float) -> None:
+        """Progress from the executor thread."""
+        self.hass.loop.call_soon_threadsafe(self._set_progress, phase, share)
+
+    @callback
+    def _set_progress(self, phase: str, share: float) -> None:
+        if not self.analysis_running:
+            return
+        self.analysis_progress = {"phase": phase, "share": share}
+        now = time.monotonic()
+        if now - self._progress_sent >= 1 or share >= 1:
+            self._progress_sent = now
+            self._notify()
+
+    async def async_run_analysis(self, *, force_sizes: bool = False) -> dict[str, Any]:
+        """Analyze the recorder database now (stoppable, in chunks)."""
         if self.analysis_running:
             raise HomeAssistantError("Analysis already running")
         self.analysis_running = True
+        self.analysis_progress = {"phase": "states", "share": 0.0}
+        control = database.AnalysisControl(progress=self._on_progress)
+        self._analysis_control = control
         self._notify()
         try:
-            result = await database.async_analyze(self.hass)
+            result = await database.async_analyze(
+                self.hass, control, self.store.data.analysis, force_sizes=force_sizes
+            )
             self.store.data.analysis = result
             file_bytes = await database.async_database_size(self.hass, result)
             table_sizes = result.get("table_sizes") or {}
@@ -291,6 +333,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return result
         finally:
             self.analysis_running = False
+            self.analysis_progress = None
+            self._analysis_control = None
             await self.async_refresh()
 
     # ------------------------------------------------------------------
@@ -633,6 +677,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             est_bytes=int(info.get("est_bytes", 0)),
             stat_rows=int(info.get("stat_rows", 0)),
             est_attr_bytes=int(info.get("est_attr_bytes", 0)),
+            attr_only=int(info.get("attr_only", 0)),
             state_class=attrs.get("state_class") or capabilities.get("state_class"),
             device_class=attrs.get("device_class")
             or (entry.device_class or entry.original_device_class if entry else None),

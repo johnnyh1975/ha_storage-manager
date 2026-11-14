@@ -26,7 +26,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.storage import Store
 import probatio as vol
 
-from . import files
+from . import database, files
 from .const import ALL_TIERS, DOMAIN, SIGNAL_UPDATED
 from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
 from .repack import REPACK_METHODS
@@ -116,8 +116,19 @@ async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
 
 
 async def _analyze(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
-    result = await c.async_run_analysis()
-    return {"generated_at": result["generated_at"], "duration_s": result["duration_s"]}
+    try:
+        result = await c.async_run_analysis(force_sizes=msg.get("force_sizes", False))
+    except database.AnalysisCancelled:
+        return {"cancelled": True}
+    return {
+        "generated_at": result["generated_at"],
+        "duration_s": result["duration_s"],
+        "cancelled": False,
+    }
+
+
+async def _stop_analysis(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return {"stopping": c.stop_analysis()}
 
 
 async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -211,7 +222,12 @@ def async_setup(hass: HomeAssistant) -> None:
         },
         _apply,
     )
-    _register(hass, {"type": f"{DOMAIN}/analyze"}, _analyze)
+    _register(
+        hass,
+        {"type": f"{DOMAIN}/analyze", vol.Optional("force_sizes", default=False): bool},
+        _analyze,
+    )
+    _register(hass, {"type": f"{DOMAIN}/stop_analysis"}, _stop_analysis)
     _register(
         hass,
         {"type": f"{DOMAIN}/entity_detail", vol.Required("entity_id"): ENTITY_ID},

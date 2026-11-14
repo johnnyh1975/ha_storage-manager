@@ -10,13 +10,17 @@ https://github.com/tonylofgren/aurora-smart-home
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
 import json
 import logging
 from pathlib import Path
+import threading
 import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.recorder import get_instance, session_scope
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -30,53 +34,80 @@ DEFAULT_ATTR_FACTOR = 1.25
 
 TOP_EVENTS = 15
 
-Q_STATES = text(
+Q_STATES_CHUNK = text(
     """
-    SELECT sm.entity_id,
+    SELECT s.metadata_id,
            COUNT(*) AS cnt,
            SUM(CASE WHEN s.last_updated_ts >= :since THEN 1 ELSE 0 END) AS cnt24,
            COALESCE(SUM(LENGTH(s.state)), 0) AS state_len,
-           MIN(s.last_updated_ts) AS oldest
+           MIN(s.last_updated_ts) AS oldest,
+           SUM(CASE WHEN s.last_changed_ts IS NOT NULL THEN 1 ELSE 0 END) AS attr_only,
+           SUM(CASE WHEN s.last_updated_ts < :cutoff THEN 1 ELSE 0 END) AS obsolete
     FROM states s
-    JOIN states_meta sm ON s.metadata_id = sm.metadata_id
-    GROUP BY sm.entity_id
+    WHERE s.state_id >= :lo AND s.state_id < :hi
+    GROUP BY s.metadata_id
     """
 )
 
-Q_ATTRS = text(
+# every state row that points at an attribute row of this id range; an
+# attribute row shared by several entities is split between them
+Q_ATTRS_CHUNK = text(
     """
-    SELECT sm.entity_id, COALESCE(SUM(LENGTH(sa.shared_attrs)), 0) AS attr_len
-    FROM (SELECT DISTINCT metadata_id, attributes_id
-          FROM states WHERE attributes_id IS NOT NULL) d
+    SELECT d.metadata_id, d.attributes_id, LENGTH(sa.shared_attrs)
+    FROM (SELECT DISTINCT metadata_id, attributes_id FROM states
+          WHERE attributes_id >= :lo AND attributes_id < :hi) d
     JOIN state_attributes sa ON sa.attributes_id = d.attributes_id
-    JOIN states_meta sm ON sm.metadata_id = d.metadata_id
-    GROUP BY sm.entity_id
     """
 )
 
-Q_STATS = text(
+# attribute rows no state points at any more (removed by the next purge)
+Q_LOOSE_ATTRS_CHUNK = text(
     """
-    SELECT m.statistic_id, m.source, COUNT(*) AS cnt
-    FROM {table} st
-    JOIN statistics_meta m ON st.metadata_id = m.id
-    GROUP BY m.statistic_id, m.source
+    SELECT COUNT(*), COALESCE(SUM(LENGTH(sa.shared_attrs)), 0)
+    FROM state_attributes sa
+    WHERE sa.attributes_id >= :lo AND sa.attributes_id < :hi
+      AND NOT EXISTS (SELECT 1 FROM states s WHERE s.attributes_id = sa.attributes_id)
     """
 )
 
-Q_EVENTS = text(
+Q_STATS_CHUNK = (
+    "SELECT metadata_id, COUNT(*) FROM {table} "  # noqa: S608 - table from a constant list
+    "WHERE id >= :lo AND id < :hi GROUP BY metadata_id"
+)
+
+Q_EVENTS_CHUNK = text(
     """
-    SELECT et.event_type, COUNT(*) AS cnt
-    FROM events e
-    JOIN event_types et ON e.event_type_id = et.event_type_id
-    GROUP BY et.event_type
+    SELECT event_type_id, COUNT(*),
+           SUM(CASE WHEN time_fired_ts < :cutoff THEN 1 ELSE 0 END)
+    FROM events
+    WHERE event_id >= :lo AND event_id < :hi
+    GROUP BY event_type_id
     """
 )
+
+RANGES = {
+    "states": "SELECT MIN(state_id), MAX(state_id) FROM states",
+    "state_attributes": "SELECT MIN(attributes_id), MAX(attributes_id) FROM state_attributes",
+    "statistics": "SELECT MIN(id), MAX(id) FROM statistics",
+    "statistics_short_term": "SELECT MIN(id), MAX(id) FROM statistics_short_term",
+    "events": "SELECT MIN(event_id), MAX(event_id) FROM events",
+}
+
+# phase -> (start, end) of the overall progress
+PHASES = {
+    "states": (0.0, 0.5),
+    "state_attributes": (0.5, 0.8),
+    "statistics": (0.8, 0.86),
+    "statistics_short_term": (0.86, 0.9),
+    "events": (0.9, 1.0),
+}
 
 Q_TABLE_SIZES = {
-    # dbstat reports tables and indexes; sqlite_master maps each to its table
+    # one row per table or index (aggregate); sqlite_master maps indexes to tables
     "sqlite": text(
-        "SELECT m.tbl_name, SUM(d.pgsize) FROM dbstat d "
-        "JOIN sqlite_master m ON d.name = m.name GROUP BY m.tbl_name"
+        "SELECT COALESCE(m.tbl_name, d.name), SUM(d.pgsize) FROM dbstat d "
+        "LEFT JOIN sqlite_master m ON d.name = m.name "
+        "WHERE d.aggregate = TRUE GROUP BY COALESCE(m.tbl_name, d.name)"
     ),
     "mysql": text(
         "SELECT table_name, data_length + index_length FROM information_schema.tables "
@@ -86,6 +117,34 @@ Q_TABLE_SIZES = {
         "SELECT relname, pg_total_relation_size(relid) FROM pg_catalog.pg_statio_user_tables"
     ),
 }
+# SQLite before 3.31 has no aggregate column
+Q_TABLE_SIZES_SQLITE_LEGACY = text(
+    "SELECT COALESCE(m.tbl_name, d.name), SUM(d.pgsize) FROM dbstat d "
+    "LEFT JOIN sqlite_master m ON d.name = m.name GROUP BY COALESCE(m.tbl_name, d.name)"
+)
+# seconds between chunks so the recorder's executor is not monopolised
+CHUNK_PAUSE = 0.05
+# dbstat reads every page, so its result is reused for a day
+TABLE_SIZES_MAX_AGE = 86400
+# MariaDB/MySQL take sizes from InnoDB statistics, which are estimates
+ESTIMATED_SIZES = frozenset({"mysql"})
+
+
+class AnalysisCancelled(HomeAssistantError):
+    """The user stopped the analysis."""
+
+
+@dataclass(kw_only=True)
+class AnalysisControl:
+    """Stop flag, progress callback and pacing of a chunked analysis."""
+
+    stop: threading.Event = field(default_factory=threading.Event)
+    progress: Callable[[str, float], None] | None = None
+    target_seconds: float = 2.0
+    initial_step: int = 50_000
+    min_step: int = 1_000
+    max_step: int = 5_000_000
+    pause: float = field(default_factory=lambda: CHUNK_PAUSE)
 
 
 def _dialect(hass: HomeAssistant) -> str:
@@ -125,74 +184,194 @@ def sqlite_file_size(path: Path | None) -> int | None:
 
 
 def _table_sizes(session: Session, dialect: str) -> dict[str, int]:
-    query = Q_TABLE_SIZES.get(dialect)
-    if query is None:
-        return {}
-    sizes: dict[str, int] = {}
-    try:
-        for name, size in session.execute(query):
-            sizes[str(name).lower()] = int(size or 0)
-    except Exception as err:  # noqa: BLE001 - dbstat may be compiled out
-        _LOGGER.debug("Table sizes not available on %s: %s", dialect, err)
-        session.rollback()
-        return {}
-    return sizes
+    queries = [Q_TABLE_SIZES.get(dialect)]
+    if dialect == "sqlite":
+        queries.append(Q_TABLE_SIZES_SQLITE_LEGACY)
+    for query in queries:
+        if query is None:
+            continue
+        sizes: dict[str, int] = {}
+        try:
+            for name, size in session.execute(query):
+                sizes[str(name).lower()] = sizes.get(str(name).lower(), 0) + int(size or 0)
+        except Exception as err:  # noqa: BLE001 - dbstat may be compiled out
+            _LOGGER.debug("Table sizes not available on %s: %s", dialect, err)
+            session.rollback()
+            continue
+        return sizes
+    return {}
 
 
-def _analyze(hass: HomeAssistant, dialect: str, keep_days: int = 10) -> dict[str, Any]:
-    """Run the analysis (blocking, recorder executor)."""
-    started = time.monotonic()
-    since = time.time() - 86400
-    entities: dict[str, dict[str, Any]] = {}
+def _range(hass: HomeAssistant, table: str) -> tuple[int, int] | None:
     with session_scope(hass=hass, read_only=True) as session:
-        for entity_id, cnt, cnt24, state_len, oldest in session.execute(Q_STATES, {"since": since}):
-            entities[entity_id] = {
-                "rows": int(cnt or 0),
-                "rows_24h": int(cnt24 or 0),
-                "state_len": int(state_len or 0),
-                "attr_len": 0,
-                "oldest": float(oldest) if oldest else None,
-                "stat_rows": 0,
-            }
-        for entity_id, attr_len in session.execute(Q_ATTRS):
-            entities.setdefault(
-                entity_id,
-                {
-                    "rows": 0,
-                    "rows_24h": 0,
-                    "state_len": 0,
-                    "oldest": None,
-                    "stat_rows": 0,
-                },
-            )["attr_len"] = int(attr_len or 0)
+        low, high = session.execute(text(RANGES[table])).one()
+    if low is None or high is None:
+        return None
+    return int(low), int(high)
 
-        statistics: dict[str, dict[str, Any]] = {}
-        for table in ("statistics", "statistics_short_term"):
-            for statistic_id, source, cnt in session.execute(
-                text(Q_STATS.text.format(table=table))
-            ):
-                entry = statistics.setdefault(statistic_id, {"source": source, "rows": 0})
-                entry["rows"] += int(cnt or 0)
 
-        events = sorted(
-            ({"event_type": et, "rows": int(c or 0)} for et, c in session.execute(Q_EVENTS)),
-            key=lambda e: e["rows"],
-            reverse=True,
+def _chunks(
+    hass: HomeAssistant,
+    control: AnalysisControl,
+    table: str,
+    run: Callable[[Session, int, int], None],
+) -> None:
+    """Call ``run`` for id ranges of ``table``, each in its own short session.
+
+    Short read transactions keep SQLite free to checkpoint its WAL while a
+    large database is analysed. The step adapts to about two seconds.
+    """
+    start, end = PHASES[table]
+    bounds = _range(hass, table)
+    if bounds is None:
+        _report(control, table, end)
+        return
+    low, high = bounds
+    step = control.initial_step
+    current = low
+    while current <= high:
+        if control.stop.is_set():
+            raise AnalysisCancelled("Analysis stopped")
+        began = time.monotonic()
+        with session_scope(hass=hass, read_only=True) as session:
+            run(session, current, current + step)
+        took = max(time.monotonic() - began, 0.001)
+        current += step
+        done = min((current - low) / (high - low + 1), 1.0)
+        _report(control, table, start + (end - start) * done)
+        factor = min(max(control.target_seconds / took, 0.5), 2.0)
+        step = int(min(max(step * factor, control.min_step), control.max_step))
+        if control.pause:
+            time.sleep(control.pause)
+
+
+def _report(control: AnalysisControl, phase: str, share: float) -> None:
+    if control.progress is not None:
+        control.progress(phase, round(share, 3))
+
+
+def _blank() -> dict[str, Any]:
+    return {
+        "rows": 0,
+        "rows_24h": 0,
+        "state_len": 0,
+        "attr_len": 0,
+        "attr_only": 0,
+        "oldest": None,
+        "stat_rows": 0,
+    }
+
+
+def _analyze(
+    hass: HomeAssistant,
+    dialect: str,
+    keep_days: int = 10,
+    control: AnalysisControl | None = None,
+    cached_sizes: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the analysis in chunks (blocking, recorder executor)."""
+    control = control or AnalysisControl()
+    started = time.monotonic()
+    now = time.time()
+    since = now - 86400
+    cutoff = now - keep_days * 86400
+
+    by_meta: dict[int, dict[str, Any]] = {}
+    obsolete = {"states": 0, "events": 0}
+
+    def states_chunk(session: Session, low: int, high: int) -> None:
+        params = {"since": since, "cutoff": cutoff, "lo": low, "hi": high}
+        for meta, cnt, cnt24, state_len, oldest, attr_only, old in session.execute(
+            Q_STATES_CHUNK, params
+        ):
+            obsolete["states"] += int(old or 0)
+            if meta is None:
+                continue
+            info = by_meta.setdefault(int(meta), _blank())
+            info["rows"] += int(cnt or 0)
+            info["rows_24h"] += int(cnt24 or 0)
+            info["state_len"] += int(state_len or 0)
+            info["attr_only"] += int(attr_only or 0)
+            if oldest is not None and (info["oldest"] is None or oldest < info["oldest"]):
+                info["oldest"] = float(oldest)
+
+    attr_totals = {"shared_rows": 0, "loose_rows": 0, "loose_len": 0}
+
+    def attrs_chunk(session: Session, low: int, high: int) -> None:
+        params = {"lo": low, "hi": high}
+        owners: dict[int, list[int]] = {}
+        lengths: dict[int, int] = {}
+        for meta, attributes_id, length in session.execute(Q_ATTRS_CHUNK, params):
+            if meta is None:
+                continue
+            owners.setdefault(int(attributes_id), []).append(int(meta))
+            lengths[int(attributes_id)] = int(length or 0)
+        for attributes_id, metas in owners.items():
+            if len(metas) > 1:
+                attr_totals["shared_rows"] += 1
+            share = lengths[attributes_id] / len(metas)
+            for meta in metas:
+                by_meta.setdefault(meta, _blank())["attr_len"] += share
+        loose_rows, loose_len = session.execute(Q_LOOSE_ATTRS_CHUNK, params).one()
+        attr_totals["loose_rows"] += int(loose_rows or 0)
+        attr_totals["loose_len"] += int(loose_len or 0)
+
+    stat_rows: dict[int, int] = {}
+
+    def stats_chunk(table: str) -> Callable[[Session, int, int], None]:
+        query = text(Q_STATS_CHUNK.format(table=table))
+
+        def run(session: Session, low: int, high: int) -> None:
+            for meta, cnt in session.execute(query, {"lo": low, "hi": high}):
+                stat_rows[int(meta)] = stat_rows.get(int(meta), 0) + int(cnt or 0)
+
+        return run
+
+    event_rows: dict[int | None, int] = {}
+
+    def events_chunk(session: Session, low: int, high: int) -> None:
+        params = {"cutoff": cutoff, "lo": low, "hi": high}
+        for type_id, cnt, old in session.execute(Q_EVENTS_CHUNK, params):
+            key = int(type_id) if type_id is not None else None
+            event_rows[key] = event_rows.get(key, 0) + int(cnt or 0)
+            obsolete["events"] += int(old or 0)
+
+    _chunks(hass, control, "states", states_chunk)
+    _chunks(hass, control, "state_attributes", attrs_chunk)
+    _chunks(hass, control, "statistics", stats_chunk("statistics"))
+    _chunks(hass, control, "statistics_short_term", stats_chunk("statistics_short_term"))
+    _chunks(hass, control, "events", events_chunk)
+    if control.stop.is_set():
+        raise AnalysisCancelled("Analysis stopped")
+
+    with session_scope(hass=hass, read_only=True) as session:
+        meta_names = {
+            int(m): str(e)
+            for m, e in session.execute(text("SELECT metadata_id, entity_id FROM states_meta"))
+        }
+        stat_meta = {
+            int(i): (str(sid), str(source))
+            for i, sid, source in session.execute(
+                text("SELECT id, statistic_id, source FROM statistics_meta")
+            )
+        }
+        type_names = {
+            int(i): str(name)
+            for i, name in session.execute(
+                text("SELECT event_type_id, event_type FROM event_types")
+            )
+        }
+        fresh = (
+            cached_sizes is not None
+            and dialect == "sqlite"
+            and time.time() - float(cached_sizes.get("at") or 0) < TABLE_SIZES_MAX_AGE
         )
-        table_sizes = _table_sizes(session, dialect)
-        cutoff = time.time() - keep_days * 86400
-        obsolete_states = int(
-            session.execute(
-                text("SELECT COUNT(*) FROM states WHERE last_updated_ts < :c"), {"c": cutoff}
-            ).scalar()
-            or 0
-        )
-        obsolete_events = int(
-            session.execute(
-                text("SELECT COUNT(*) FROM events WHERE time_fired_ts < :c"), {"c": cutoff}
-            ).scalar()
-            or 0
-        )
+        if fresh and cached_sizes is not None:
+            table_sizes = dict(cached_sizes.get("sizes") or {})
+            sizes_at = float(cached_sizes["at"])
+        else:
+            table_sizes = _table_sizes(session, dialect)
+            sizes_at = time.time()
         freelist_bytes = None
         if dialect == "sqlite":
             try:
@@ -202,9 +381,35 @@ def _analyze(hass: HomeAssistant, dialect: str, keep_days: int = 10) -> dict[str
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("PRAGMA freelist_count failed: %s", err)
 
+    entities: dict[str, dict[str, Any]] = {}
+    for meta, info in by_meta.items():
+        entity_id = meta_names.get(meta)
+        if entity_id is None:
+            continue
+        info["attr_len"] = int(info["attr_len"])
+        entities[entity_id] = info
+
+    statistics: dict[str, dict[str, Any]] = {}
+    for meta, cnt in stat_rows.items():
+        known = stat_meta.get(meta)
+        if known is None:
+            continue
+        statistic_id, source = known
+        statistics.setdefault(statistic_id, {"source": source, "rows": 0})["rows"] += cnt
+
+    counted: dict[str, int] = {}
+    for key, cnt in event_rows.items():
+        name = type_names.get(key, "unknown") if key is not None else "unknown"
+        counted[name] = counted.get(name, 0) + cnt
+    events: list[dict[str, Any]] = [
+        {"event_type": name, "rows": cnt}
+        for name, cnt in sorted(counted.items(), key=lambda item: item[1], reverse=True)
+    ]
+
     total_rows = sum(e["rows"] for e in entities.values())
-    total_attr_len = sum(e["attr_len"] for e in entities.values())
+    total_attr_len = sum(e["attr_len"] for e in entities.values()) + attr_totals["loose_len"]
     total_stat_rows = sum(s["rows"] for s in statistics.values())
+    total_event_rows = sum(e["rows"] for e in events)
 
     # Calibrate byte estimates with real table sizes when available
     states_bytes = table_sizes.get("states", 0) + table_sizes.get("states_meta", 0)
@@ -215,6 +420,8 @@ def _analyze(hass: HomeAssistant, dialect: str, keep_days: int = 10) -> dict[str
     )
     stat_bytes = table_sizes.get("statistics", 0) + table_sizes.get("statistics_short_term", 0)
     stat_row = stat_bytes / total_stat_rows if stat_bytes and total_stat_rows else DEFAULT_STAT_ROW
+    event_bytes = table_sizes.get("events", 0) + table_sizes.get("event_data", 0)
+    event_row = event_bytes / max(total_event_rows, 1) if table_sizes else DEFAULT_STATE_ROW
 
     for entity_id, info in entities.items():
         stat = statistics.get(entity_id)
@@ -231,37 +438,44 @@ def _analyze(hass: HomeAssistant, dialect: str, keep_days: int = 10) -> dict[str
         "statistics": statistics,
         "events": events[:TOP_EVENTS],
         "table_sizes": table_sizes,
+        "table_sizes_at": sizes_at,
         "freelist_bytes": freelist_bytes,
         "obsolete": {
-            "states": obsolete_states,
-            "events": obsolete_events,
-            "bytes": int(
-                obsolete_states * state_row
-                + obsolete_events
-                * (
-                    (table_sizes.get("events", 0) + table_sizes.get("event_data", 0))
-                    / max(sum(e["rows"] for e in events), 1)
-                    if table_sizes
-                    else DEFAULT_STATE_ROW
-                )
-            ),
+            "states": obsolete["states"],
+            "events": obsolete["events"],
+            "bytes": int(obsolete["states"] * state_row + obsolete["events"] * event_row),
             "keep_days": keep_days,
         },
         "totals": {
             "state_rows": total_rows,
             "statistic_rows": total_stat_rows,
-            "event_rows": sum(e["rows"] for e in events),
+            "event_rows": total_event_rows,
             "calibrated": bool(table_sizes),
+            "estimated_sizes": dialect in ESTIMATED_SIZES or not table_sizes,
+            "shared_attribute_rows": attr_totals["shared_rows"],
+            "loose_attribute_rows": attr_totals["loose_rows"],
+            "loose_attribute_bytes": int(attr_totals["loose_len"] * attr_factor),
         },
     }
 
 
-async def async_analyze(hass: HomeAssistant) -> dict[str, Any]:
+async def async_analyze(
+    hass: HomeAssistant,
+    control: AnalysisControl | None = None,
+    previous: dict[str, Any] | None = None,
+    *,
+    force_sizes: bool = False,
+) -> dict[str, Any]:
     """Analyze the recorder database."""
     instance = get_instance(hass)
     await instance.async_db_ready
     dialect = _dialect(hass)
-    result = await instance.async_add_executor_job(_analyze, hass, dialect, instance.keep_days)
+    cached = None
+    if previous and not force_sizes and previous.get("table_sizes"):
+        cached = {"sizes": previous["table_sizes"], "at": previous.get("table_sizes_at")}
+    result = await instance.async_add_executor_job(
+        _analyze, hass, dialect, instance.keep_days, control, cached
+    )
     _LOGGER.debug(
         "Database analysis finished in %ss (%s entities)",
         result["duration_s"],
@@ -277,6 +491,8 @@ DAY_BUCKET = {
 }
 DETAIL_DAYS = 14
 TOP_ATTRIBUTES = 8
+DRIVER_SAMPLE = 2000  # newest rows looked at for changing attributes
+DRIVER_RATE = 0.5  # an attribute that changes in at least every second row
 
 
 def _entity_detail(hass: HomeAssistant, dialect: str, entity_id: str) -> dict[str, Any]:
@@ -286,6 +502,8 @@ def _entity_detail(hass: HomeAssistant, dialect: str, entity_id: str) -> dict[st
     daily = [0] * DETAIL_DAYS
     attributes: list[dict[str, Any]] = []
     variants = 0
+    blobs: list[str] = []
+    sampled = attr_only = 0
     with session_scope(hass=hass, read_only=True) as session:
         metadata_id = session.execute(
             text("SELECT metadata_id FROM states_meta WHERE entity_id = :e"), {"e": entity_id}
@@ -322,13 +540,78 @@ def _entity_detail(hass: HomeAssistant, dialect: str, entity_id: str) -> dict[st
                 {"m": metadata_id},
             ).scalar()
             attributes = attribute_sizes(largest)
+            sample = session.execute(
+                text(
+                    "SELECT sa.shared_attrs, s.last_changed_ts FROM states s "
+                    "JOIN state_attributes sa ON s.attributes_id = sa.attributes_id "
+                    "WHERE s.metadata_id = :m ORDER BY s.last_updated_ts DESC LIMIT :n"
+                ),
+                {"m": metadata_id, "n": DRIVER_SAMPLE},
+            ).all()
+            blobs = [str(row[0]) for row in reversed(sample) if row[0]]
+            sampled = len(sample)
+            attr_only = sum(1 for row in sample if row[1] is not None)
     return {
         "entity_id": entity_id,
         "daily": daily,
         "days": DETAIL_DAYS,
         "attribute_variants": variants,
         "attributes": attributes,
+        "drivers": attribute_drivers(blobs) if metadata_id is not None else [],
+        "sample_rows": sampled if metadata_id is not None else 0,
+        "sample_attr_only": attr_only if metadata_id is not None else 0,
     }
+
+
+def attribute_drivers(blobs: list[str]) -> list[dict[str, Any]]:
+    """Which attributes take the space and which keep changing (pure function).
+
+    ``blobs`` are attribute JSON strings, oldest first. For every key: its
+    average size, its share of the attribute bytes and how often its value
+    differs from the row before. A key that changes in at least every second
+    row is a driver: it is why new attribute rows keep being written.
+    """
+    parsed: dict[str, dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
+    for blob in blobs:
+        if blob not in parsed:
+            try:
+                value = json.loads(blob)
+            except ValueError:
+                value = None
+            parsed[blob] = value if isinstance(value, dict) else {}
+        rows.append(parsed[blob])
+    if not rows:
+        return []
+    sizes: dict[str, int] = {}
+    changes: dict[str, int] = {}
+    previous: dict[str, str] = {}
+    for index, row in enumerate(rows):
+        current: dict[str, str] = {}
+        for key, value in row.items():
+            text_value = json.dumps(value, separators=(",", ":"), sort_keys=True)
+            current[key] = text_value
+            sizes[key] = sizes.get(key, 0) + len(text_value) + len(key) + 4
+            if index and previous.get(key) != text_value:
+                changes[key] = changes.get(key, 0) + 1
+        for key in previous.keys() - current.keys():
+            changes[key] = changes.get(key, 0) + 1
+        previous = current
+    total = sum(sizes.values()) or 1
+    steps = max(len(rows) - 1, 1)
+    result: list[dict[str, Any]] = [
+        {
+            "name": key,
+            "bytes": round(size / len(rows)),
+            "share": round(size / total, 3),
+            "change_rate": round(changes.get(key, 0) / steps, 3) if len(rows) > 1 else 0.0,
+        }
+        for key, size in sizes.items()
+    ]
+    for item in result:
+        item["driver"] = item["change_rate"] >= DRIVER_RATE
+    result.sort(key=lambda item: (not item["driver"], -item["share"]))
+    return result[:TOP_ATTRIBUTES]
 
 
 def attribute_sizes(shared_attrs: str | None) -> list[dict[str, Any]]:

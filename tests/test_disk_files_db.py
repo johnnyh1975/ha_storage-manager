@@ -203,7 +203,11 @@ def test_table_sizes_unknown_dialect_and_error() -> None:
     session = MagicMock()
     session.execute.side_effect = RuntimeError("no dbstat")
     assert database._table_sizes(session, "sqlite") == {}
-    session.rollback.assert_called_once()
+    # aggregate query first, then the query for SQLite before 3.31
+    assert session.rollback.call_count == 2
+    session = MagicMock()
+    session.execute.side_effect = [RuntimeError("no aggregate column"), [("states", 7)]]
+    assert database._table_sizes(session, "sqlite") == {"states": 7}
     session = MagicMock()
     session.execute.return_value = [("states", 10), ("ix_states_metadata_id", 5), ("other", 1)]
     assert database._table_sizes(session, "mysql") == {

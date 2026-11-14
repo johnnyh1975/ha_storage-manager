@@ -7,6 +7,7 @@ https://github.com/tonylofgren/aurora-smart-home
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant
 import pytest
@@ -15,6 +16,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.storage_manager.const import DOMAIN
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
+
+
+@pytest.fixture(autouse=True)
+def _no_chunk_pause():
+    """Chunked analysis without the pause between chunks."""
+    with patch("custom_components.storage_manager.database.CHUNK_PAUSE", 0):
+        yield
 
 
 @pytest.fixture
@@ -46,5 +54,6 @@ async def setup_entry(
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    # the first analysis starts in the background; let it finish
+    await hass.async_block_till_done(wait_background_tasks=True)
     return entry
