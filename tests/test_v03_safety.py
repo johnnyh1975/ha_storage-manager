@@ -690,3 +690,22 @@ async def test_ws_integrity_and_safety_preview(
             await coordinator.async_apply_recorder_changes(retention={"sensor.a": "1"})
     finally:
         coordinator._lock.release()
+
+
+async def test_repack_falls_back_without_recorder_tasks(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """Without the recorder's task API, Home Assistant's own repack is used."""
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    db = _make_db(tmp_path / "fb.db")
+    assert repack.tasks_available()
+    with (
+        patch.object(coord_mod.database, "sqlite_path", return_value=db),
+        patch.object(coord_mod.repack, "tasks_available", return_value=False),
+        patch.object(coord_mod.database, "async_repack", AsyncMock()) as ha_repack,
+        patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)),
+    ):
+        await coordinator.async_refresh()
+        await coordinator.async_clean(["repack"])
+    ha_repack.assert_awaited_once()

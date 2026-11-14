@@ -497,4 +497,21 @@ export const styles = css`
   .field input:disabled { opacity: 0.55; }
   .group-head .spacer { flex: 1; }
   .tagx { border: none; background: none; cursor: pointer; padding: 0 0 0 4px; font-size: 10px; color: inherit; }
+  .check { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--divider-color); }
+  .check:last-child { border-bottom: none; }
+  .check .txt { flex: 1; min-width: 0; }
+  .check ha-icon { flex: none; --mdc-icon-size: 22px; }
+  .check.ok ha-icon { color: var(--success-color, #43a047); }
+  .check.warning ha-icon { color: var(--warning-color, #ffa600); }
+  .check.error ha-icon { color: var(--error-color, #db4437); }
+  .check.info ha-icon, .check.unknown ha-icon { color: var(--secondary-text-color); }
+  .check .btn { flex: none; }
+  .progress-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .progress { flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: var(--divider-color); overflow: hidden; }
+  .progress > div { height: 100%; background: var(--primary-color); transition: width 0.4s ease; }
+  ul.safety { margin: 4px 0 8px; padding-left: 20px; }
+  ul.safety li.bad { color: var(--error-color, #db4437); }
+  .check-line { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; cursor: pointer; }
+  .check-line input { width: 18px; height: 18px; margin-top: 2px; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
 `;

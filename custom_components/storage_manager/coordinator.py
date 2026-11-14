@@ -727,6 +727,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "device_class": facts.device_class,
                 "entity_category": facts.entity_category,
                 "attr_share": round(advisor.attribute_share(facts), 2),
+                "attr_only_share": round(facts.attr_only / facts.rows, 2) if facts.rows else 0,
             }
             entity_usage = usage.get(entity_id)
             advice[entity_id]["used"] = (
@@ -788,6 +789,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "rows": info.get("rows", 0),
                     "rows_24h": info.get("rows_24h", 0),
                     "stat_rows": info.get("stat_rows", 0),
+                    "attr_only": info.get("attr_only", 0),
                     "est_bytes": info.get("est_bytes", 0),
                     "est_state_bytes": info.get("est_state_bytes", info.get("est_bytes", 0)),
                     "oldest": info.get("oldest"),
@@ -815,6 +817,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "rows": rows,
             "analysis_at": analysis.get("generated_at"),
             "calibrated": (analysis.get("totals") or {}).get("calibrated", False),
+            "estimated_sizes": (analysis.get("totals") or {}).get("estimated_sizes", True),
+            "dialect": analysis.get("dialect"),
+            "loose_attribute_bytes": (analysis.get("totals") or {}).get("loose_attribute_bytes", 0),
             "events": analysis.get("events") or [],
             "table_sizes": analysis.get("table_sizes") or {},
             "keep_days": get_instance(hass).keep_days,
@@ -1320,7 +1325,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         size_before = self.data["database"]["size"] or 0
         path = database.sqlite_path(self.hass)
         plan = self.data["database"].get("repack")
-        if path is None or plan is None:
+        if path is None or plan is None or not repack.tasks_available():
             if not self.repack_possible():
                 errors.append("not enough free space for repack")
                 return

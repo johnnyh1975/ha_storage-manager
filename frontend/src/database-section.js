@@ -39,6 +39,7 @@ export const DatabaseSection = (Base) =>
       const vars = {
         rate: rate(row?.rows_24h, t, this.lang),
         share: percent(advice.facts?.attr_share || 0, this.lang),
+        attr_only: percent(advice.facts?.attr_only_share || 0, this.lang),
         days: used.min_days || "",
       };
       return t(`reason_${advice.reason}`, vars);
@@ -119,6 +120,10 @@ export const DatabaseSection = (Base) =>
               <div class="txt">${t("packages_banner")}</div>
               <button class="btn" @click=${() => this._navigate("/config/repairs")}>${t("packages_open")}</button></div>`
           : nothing}
+        ${rec.core_entity_options === "writable"
+          ? html`<div class="banner info"><ha-icon icon="mdi:new-box"></ha-icon>
+              <div class="txt">${t("core_options_banner")}</div></div>`
+          : nothing}
         ${ov.gui_recorder && !ov.gui_recorder_imported
           ? html`<div class="banner info"><ha-icon icon="mdi:import"></ha-icon>
               <div class="txt">${t("gui_recorder_banner")}</div>
@@ -146,11 +151,12 @@ export const DatabaseSection = (Base) =>
                 </div>`
               : nothing}
             <div class="row" style="margin-top:12px">
-              <span class="muted small">${ent?.calibrated ? t("db_calibrated") : t("db_estimated")}
+              <span class="muted small">${ent?.estimated_sizes === false ? t("db_calibrated") : ent?.dialect === "mysql" && ent?.calibrated ? t("db_estimated_innodb") : t("db_estimated")}
                 ${rec.yaml_filters?.uses_include ? html` <b>${t("yaml_include_warning")}</b>` : nothing}</span>
               <span class="spacer"></span>
               <button class="btn" ?disabled=${running || !!this._working} @click=${this._analyze}>${t("analyze")}</button>
             </div>
+            ${this._renderAnalysisProgress(db)}
           </div>
           ${this._renderEffect(ent)}
         </div>
@@ -161,6 +167,7 @@ export const DatabaseSection = (Base) =>
           ? html`<div class="card"><p class="muted">${t("analysis_needed")}</p></div>`
           : html`${this._renderInbox(ent)} ${this._renderExplorer(ent)}`}
 
+        ${this._healthCard("database")}
         ${this._renderSettings(ent)}
         ${ent?.events?.length
           ? html`<div class="card"><h2>${t("events_title")}</h2>
@@ -670,6 +677,26 @@ export const DatabaseSection = (Base) =>
             class=${i === d.daily.length - 1 ? "today" : ""}></div>`)}
         </div>
 
+        ${d.sample_rows
+          ? html`<p class="small">${t("detail_attr_only", {
+              n: number(d.sample_attr_only, this.lang),
+              total: number(d.sample_rows, this.lang),
+            })}</p>`
+          : nothing}
+        ${(d.drivers || []).length
+          ? html`<h4>${t("detail_drivers")}</h4>
+              ${d.drivers.map(
+                (a) => html`<div class="attr"><code>${a.name}</code>
+                  ${a.driver ? html`<span class="tag warn">${t("detail_driver")}</span>` : nothing}
+                  <span class="spacer"></span>
+                  <span class="muted small">${t("detail_driver_values", {
+                    share: percent(a.share, this.lang),
+                    rate: percent(a.change_rate, this.lang),
+                    bytes: bytes(a.bytes, this.lang),
+                  })}</span></div>`
+              )}
+              <p class="muted small">${t("detail_drivers_hint")}</p>`
+          : nothing}
         ${d.attributes.length
           ? html`<h4>${t("detail_attributes", { n: number(d.attribute_variants, this.lang) })}</h4>
               ${d.attributes.map(

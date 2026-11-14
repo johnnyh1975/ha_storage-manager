@@ -187,6 +187,17 @@ def incremental_job(pages: int) -> Callable[[Any], None]:
     return _run
 
 
+def tasks_available() -> bool:
+    """Whether jobs can run on the recorder thread (internal API, guarded)."""
+    try:
+        from homeassistant.components.recorder.tasks import (  # noqa: PLC0415
+            RecorderTask,  # noqa: F401
+        )
+    except ImportError:  # pragma: no cover - recorder internals changed
+        return False
+    return True
+
+
 def _make_task(job: Callable[[Any], None], done: Callable[[BaseException | None], None]) -> Any:
     """Wrap ``job`` in a recorder task; None if the internals moved."""
     try:

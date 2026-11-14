@@ -74,8 +74,16 @@ def _register(hass: HomeAssistant, schema: dict[Any, Any], func: Command) -> Non
 
 
 async def _overview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    data = dict(c.data)
+    # live state that changes between coordinator refreshes
+    data["database"] = {
+        **data["database"],
+        "analysis_running": c.analysis_running,
+        "analysis_progress": c.analysis_progress,
+    }
+    data["busy"] = c.busy
     return {
-        "data": c.data,
+        "data": data,
         "recommendations": c.recommendations(),
         "history": list(reversed(c.store.data.history[-20:])),
         "options": c.options,

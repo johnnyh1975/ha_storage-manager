@@ -3,6 +3,7 @@
 // https://github.com/tonylofgren/aurora-smart-home
 import { LitElement, html, nothing } from "lit";
 import { DatabaseSection, TIER_DAYS } from "./database-section.js";
+import { HealthSection } from "./health-section.js";
 import { styles } from "./styles.js";
 import { translator, locale } from "./i18n.js";
 import { bytes, number, percent, relativeTime, dateTime } from "./format.js";
@@ -36,7 +37,7 @@ const svgIcon = (path) => html`<svg viewBox="0 0 24 24" width="24" height="24" a
 const MENU = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 const REFRESH = "M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z";
 
-class StorageManagerPanel extends DatabaseSection(LitElement) {
+class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   static properties = {
     hass: { attribute: false },
     narrow: { type: Boolean },
@@ -46,6 +47,8 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
     _overview: { state: true },
     _entities: { state: true },
     _backups: { state: true },
+    _health: { state: true },
+    _repackConvert: { state: true },
     _draft: { state: true },
     _selected: { state: true },
     _search: { state: true },
@@ -157,6 +160,7 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
   _loadTab(tab) {
     if (tab === "database" && !this._entities) this._loadEntities();
     if (tab === "backups") this._loadBackups();
+    if (tab === "database" || tab === "backups") this._loadHealth();
   }
 
   _setTab(tab, pushHash = true) {
@@ -211,17 +215,28 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
       else if (target === "orphans") items.push(`${this.t("rec_orphans")}: ${p.items.length} · ${bytes(p.bytes, this.lang)}`);
       else if (target === "statistics") items.push(`${this.t("rec_statistics")}: ${p.items.length}`);
       else if (target === "purge") items.push(`${this.t("obsolete_purge")}: ${number(p.rows, this.lang)} · ${bytes(p.bytes, this.lang)}`);
-      else if (target === "repack") items.push(`${this.t("rec_repack")} · ${bytes(p.bytes, this.lang)}`);
+      else if (target === "repack") items.push(`${this.t("rec_repack")} · ${bytes(p.bytes, this.lang)} – ${this._repackPlanText(p.plan)}`);
       else if (target === "docker") items.push(this.t("docker_title"));
     }
+    const plan = preview.repack?.plan;
+    const canConvert = !!plan?.can_convert;
+    this._repackConvert = true;
+    const blockedSpace = preview.safety && !preview.safety.space.ok;
     this._dialog = {
       title: this.t("confirm_title"),
-      body: html`<p>${this.t("confirm_cleanup")}</p>
+      body: () => html`<p>${this.t("confirm_cleanup")}</p>
         <ul>${items.map((i) => html`<li>${i}</li>`)}</ul>
-        ${preview.total ? html`<p><b>${this.t("confirm_total", { bytes: bytes(preview.total, this.lang) })}</b></p>` : nothing}`,
+        ${preview.total ? html`<p><b>${this.t("confirm_total", { bytes: bytes(preview.total, this.lang) })}</b></p>` : nothing}
+        ${this._safetyItems(preview.safety)}
+        ${canConvert
+          ? html`<label class="check-line"><input type="checkbox" .checked=${this._repackConvert}
+              @change=${(e) => (this._repackConvert = e.target.checked)} />
+              <span>${this.t("repack_convert")}<br /><span class="muted small">${this.t("repack_convert_hint")}</span></span></label>`
+          : nothing}`,
       confirm: this.t("free_now"),
       danger: true,
-      action: () => this._clean(targets, extra),
+      disabled: blockedSpace,
+      action: () => this._clean(targets, canConvert ? { ...extra, convert: this._repackConvert } : extra),
     };
   }
 
@@ -230,7 +245,12 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
     try {
       const result = await this._ws("clean", { targets, ...extra });
       const msg = result.freed > 0 ? this.t("done_freed", { bytes: bytes(result.freed, this.lang) }) : this.t("done");
-      this._showToast(result.errors?.length ? `${msg} ${result.errors.join("; ")}` : msg);
+      if (result.blocked) {
+        this._handleBlocked(result.blocked, () => this._clean(targets, { ...extra, skip_backup: true }));
+      } else {
+        const backup = result.backup ? ` ${this.t("backup_used", { name: result.backup.name })}` : "";
+        this._showToast(result.errors?.length ? `${msg}${backup} ${result.errors.join("; ")}` : `${msg}${backup}`);
+      }
       await this._loadOverview();
       if (this._entities) await this._loadEntities();
       if (this._tab === "backups") await this._loadBackups();
@@ -244,7 +264,8 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
   async _analyze() {
     this._working = "analyze";
     try {
-      await this._ws("analyze");
+      const res = await this._ws("analyze");
+      if (res.cancelled) this._showToast(this.t("analysis_stopped"));
       await Promise.all([this._loadOverview(), this._loadEntities()]);
     } catch (err) {
       this._showToast(this.t("error", { msg: err.message }));
@@ -318,12 +339,21 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
         if (value !== row.tier) retention[entityId] = value;
       }
     }
+    await this._sendApply({ retention, excluded, purge_now: true });
+  }
+
+  async _sendApply(payload) {
     this._working = "apply";
     try {
-      const res = await this._ws("apply", { retention, excluded, purge_now: true });
+      const res = await this._ws("apply", payload);
       this._draft = new Map();
       this._selected = new Set();
-      this._showToast(this.t("applied"));
+      if (res.blocked) {
+        this._showToast(this.t("applied_purge_waits"));
+        this._handleBlocked(res.blocked, () => this._sendApply({ ...payload, skip_backup: true }));
+      } else {
+        this._showToast(res.backup ? `${this.t("applied")} ${this.t("backup_used", { name: res.backup.name })}` : this.t("applied"));
+      }
       await Promise.all([this._loadOverview(), this._loadEntities()]);
       if (res.packages_missing) this._showToast(this.t("packages_banner"));
     } catch (err) {
@@ -370,7 +400,7 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
   _busyBanner() {
     const busy = this._overview?.data?.busy || (this._working && this._working !== "refresh" ? this._working : null);
     if (!busy) return nothing;
-    return html`<div class="banner info"><span class="spinner"></span><div class="txt">${this.t("busy", { what: busy })}</div></div>`;
+    return html`<div class="banner info"><span class="spinner"></span><div class="txt">${this.t("busy", { what: this._busyText(busy) })}</div></div>`;
   }
 
   _renderTab() {
@@ -572,6 +602,7 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
     if (!summary.available) return html`<div class="card"><p class="muted">${t("bk_unavailable")}</p></div>`;
     const plan = this._backups?.plan;
     return html`
+      ${this._healthCard("backups")}
       <div class="card">
         <div class="kpis">
           <div class="kpi"><div class="v">${bytes(summary.local_total, this.lang)}</div><div class="l">${t("bk_kpi_local")}</div></div>
@@ -627,7 +658,10 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
     const data = this._overview.data;
     const scan = data.files || { hogs: [], large_files: [] };
     const busy = !!this._working;
-    const repackOk = data.disk.free > (data.database.size || 0) * 1.1;
+    const repackPlan = data.database.repack;
+    const repackOk = repackPlan
+      ? !!repackPlan.method && (repackPlan.free_pages_bytes > 0 || repackPlan.can_convert)
+      : data.disk.free > (data.database.size || 0) * 1.1;
     return html`
       <div class="card">
         <h2>${t("files_hogs")}</h2>
@@ -649,7 +683,7 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
       <div class="card">
         <h2>${t("maintenance")}</h2>
         <div class="list-row">
-          <div><div>${t("repack_title")}</div><div class="muted small">${repackOk ? t("repack_desc") : t("repack_impossible")}</div></div>
+          <div><div>${t("repack_title")}</div><div class="muted small">${repackPlan ? this._repackPlanText(repackPlan) : repackOk ? t("repack_desc") : t("repack_impossible")}</div></div>
           <div class="num">${data.reclaimable.repack ? bytes(data.reclaimable.repack, this.lang) : ""}</div>
           <button class="btn" ?disabled=${busy || !repackOk} @click=${() => this._previewAndClean(["repack"])}>${t("run")}</button>
         </div>
@@ -692,10 +726,10 @@ class StorageManagerPanel extends DatabaseSection(LitElement) {
       @keydown=${(e) => e.key === "Escape" && close()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label=${d.title}>
         <h3>${d.title}</h3>
-        ${d.body}
+        ${typeof d.body === "function" ? d.body() : d.body}
         <div class="actions">
           <button class="btn" @click=${close}>${this.t("cancel")}</button>
-          <button class=${d.danger ? "btn primary danger" : "btn primary"} autofocus
+          <button class=${d.danger ? "btn primary danger" : "btn primary"} autofocus ?disabled=${!!d.disabled}
             @click=${() => { close(); d.action(); }}>${d.confirm}</button>
         </div>
       </div>

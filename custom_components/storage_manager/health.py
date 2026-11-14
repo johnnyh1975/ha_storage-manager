@@ -306,12 +306,12 @@ def backup_checks(
     else:
         checks.append(_check("size", UNKNOWN))
 
-    unprotected = sorted(
-        agent
-        for agent in info["agent_ids"]
-        if agent not in local_ids and not info["protected"].get(agent, True)
-    )
-    checks.append(_check("encryption", WARNING if unprotected else OK, agents=unprotected))
+    remote_agents = [a for a in info["agent_ids"] if a not in local_ids]
+    unprotected = sorted(a for a in remote_agents if not info["protected"].get(a, True))
+    if not remote_agents:
+        checks.append(_check("encryption", UNKNOWN, agents=[]))
+    else:
+        checks.append(_check("encryption", WARNING if unprotected else OK, agents=unprotected))
 
     checks.append(_check("database_included", OK if info["include_database"] else WARNING))
 

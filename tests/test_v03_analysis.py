@@ -310,3 +310,22 @@ async def test_shutdown_stops_analysis(hass: HomeAssistant) -> None:
     await coordinator.async_shutdown()
     control.stop.set.assert_called_once()
     coordinator._analysis_control = None
+
+
+async def test_overview_has_live_progress(hass: HomeAssistant, hass_ws_client) -> None:
+    """The overview reports progress between coordinator refreshes."""
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    coordinator.analysis_running = True
+    coordinator.analysis_progress = {"phase": "events", "share": 0.95}
+    coordinator.busy = "repack:40"
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": f"{DOMAIN}/overview"})
+    msg = await client.receive_json()
+    db = msg["result"]["data"]["database"]
+    assert db["analysis_running"] is True
+    assert db["analysis_progress"] == {"phase": "events", "share": 0.95}
+    assert msg["result"]["data"]["busy"] == "repack:40"
+    coordinator.analysis_running = False
+    coordinator.analysis_progress = None
+    coordinator.busy = None

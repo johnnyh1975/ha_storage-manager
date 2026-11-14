@@ -272,6 +272,12 @@ def test_backup_checks_edges() -> None:
     )
     assert late["newest"]["status"] == health.WARNING
     assert late["newest"]["values"]["hours"] == 40
+    local_only = _by_key(
+        health.backup_checks(
+            _info(agent_ids=["backup.local"]), disk_free=0, attestations={}, now=UTC_NOW
+        )
+    )
+    assert local_only["encryption"]["status"] == health.UNKNOWN
 
 
 async def test_backup_info(hass: HomeAssistant) -> None:
