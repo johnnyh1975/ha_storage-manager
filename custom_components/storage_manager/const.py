@@ -10,7 +10,7 @@ from typing import Any, Final
 
 DOMAIN: Final = "storage_manager"
 NAME: Final = "Storage Manager"
-VERSION: Final = "0.6.1"
+VERSION: Final = "0.7.0"
 
 STORAGE_KEY: Final = f"{DOMAIN}.data"
 STORAGE_VERSION: Final = 1
@@ -74,6 +74,7 @@ ISSUE_LOW_SPACE: Final = "low_space"
 ISSUE_FORECAST: Final = "disk_full_forecast"
 ISSUE_RESTART: Final = "restart_required"
 ISSUE_PACKAGES: Final = "packages_missing"
+ISSUE_HEAVY_WRITERS: Final = "heavy_writers"
 ISSUE_DATABASE_DAMAGED: Final = "database_damaged"
 
 PACKAGE_NAME: Final = "storage_manager"

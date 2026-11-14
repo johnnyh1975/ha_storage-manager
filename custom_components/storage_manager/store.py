@@ -65,6 +65,11 @@ class ManagerData:
     kind_auto: dict[str, str] = field(default_factory=dict)
     # entities that got their kind's rule automatically (never applied twice)
     auto_applied: list[str] = field(default_factory=list)
+    # entity -> [usual rows per day, days seen, last seen] for heavy writer alerts
+    rate_baselines: dict[str, list[float]] = field(default_factory=dict)
+    baselines_at: float = 0.0
+    # entities that currently write far more than usual (None = not checked yet)
+    heavy_writers: list[dict[str, Any]] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -106,6 +111,13 @@ class ManagerData:
                 if k in advisor.KINDS and dt_util.parse_datetime(str(v)) is not None
             },
             auto_applied=sorted({str(e) for e in data.get("auto_applied") or []}),
+            rate_baselines={
+                str(k): [float(x) for x in v]
+                for k, v in (data.get("rate_baselines") or {}).items()
+                if isinstance(v, list) and len(v) == 3
+            },
+            baselines_at=float(data.get("baselines_at") or 0),
+            heavy_writers=data.get("heavy_writers"),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -129,6 +141,9 @@ class ManagerData:
             "kind_rules": self.kind_rules,
             "kind_auto": self.kind_auto,
             "auto_applied": self.auto_applied,
+            "rate_baselines": self.rate_baselines,
+            "baselines_at": self.baselines_at,
+            "heavy_writers": self.heavy_writers,
         }
 
 

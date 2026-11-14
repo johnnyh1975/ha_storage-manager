@@ -629,6 +629,7 @@ export const DatabaseSection = (Base) =>
                 const v = e.target.value === "" ? null : Number(e.target.value);
                 st.settings = { ...st.settings, [key]: v };
                 update();
+                if (key === "purge_keep_days" && v) this._loadWhatif([v]);
               }} />
             <span class="muted small">${unit}</span>
           </span>
@@ -674,6 +675,7 @@ export const DatabaseSection = (Base) =>
         <h4 class="sub">${t("settings_global")}</h4>
         <div class="fields">
           ${numberField("purge_keep_days", 1, 3650, t("unit_days"))}
+          ${this._renderWhatif(st, locked, eff)}
           ${numberField("commit_interval", 0, 30, t("unit_seconds"))}
           ${toggleField("auto_purge")}
           ${toggleField("auto_repack")}
@@ -698,6 +700,40 @@ export const DatabaseSection = (Base) =>
         </div>`;
     }
 
+    async _loadWhatif(extra = []) {
+      const days = [...new Set([3, 5, 7, 14, 30, ...extra])].sort((a, b) => a - b);
+      try {
+        const res = await this._ws("retention_whatif", { days });
+        this._whatif = { ...(this._whatif || {}), ...Object.fromEntries(res.results.map((r) => [r.days, r])) };
+      } catch (err) {
+        this._whatif = this._whatif || {};
+      }
+    }
+
+    _renderWhatif(st, locked, eff) {
+      const t = this.t;
+      if (!this._whatif) {
+        this._whatif = {};
+        this._loadWhatif();
+        return nothing;
+      }
+      const current = Number(eff.purge_keep_days);
+      const chosen = "purge_keep_days" in locked ? current : Number(st.settings.purge_keep_days ?? current);
+      const fmt = (r) => (r.bytes <= 0 ? `−${bytes(-r.bytes, this.lang)}` : `+${bytes(r.bytes, this.lang)}`);
+      const chips = Object.values(this._whatif)
+        .filter((r) => r.days !== current && r.days !== chosen)
+        .sort((a, b) => a.days - b.days);
+      const mine = chosen !== current ? this._whatif[chosen] : null;
+      return html`<div class="field whatif">
+        <span>${t("whatif_title")}</span>
+        ${mine
+          ? html`<b>${t(mine.bytes <= 0 ? "whatif_less" : "whatif_more", { days: chosen, bytes: bytes(Math.abs(mine.bytes), this.lang) })}</b>`
+          : nothing}
+        <span class="chips">${chips.map((r) => html`<span class="tag">${t("days", { n: r.days })}: ${fmt(r)}</span>`)}</span>
+        <span class="muted small">${t("whatif_hint", { days: current })}</span>
+      </div>`;
+    }
+
     async _saveSettings() {
       const st = this._settingsDraft;
       if (!st) return;
@@ -708,6 +744,7 @@ export const DatabaseSection = (Base) =>
         const res = await this._ws("settings", { filters: st.filters, settings });
         this._showToast(res.packages_missing ? this.t("packages_banner") : this.t("settings_saved"));
         this._settingsDraft = undefined;
+        this._whatif = undefined;
         await Promise.all([this._loadOverview(), this._loadEntities()]);
       } catch (err) {
         this._showToast(this.t("error", { msg: err.message }));

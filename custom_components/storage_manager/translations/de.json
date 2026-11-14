@@ -132,6 +132,10 @@
         }
       }
     },
+    "heavy_writers": {
+      "title": "Entitäten schreiben plötzlich viel mehr Verlauf",
+      "description": "{count} Entitäten schreiben mindestens zehnmal so viele Zeilen pro Tag wie üblich (üblich → jetzt): {entities}\n\nDas passiert oft nach einem Update eines Geräts oder einer Integration. In Storage Manager → Datenbank siehst du die Entität, kannst den Verlauf kürzen, die Aufzeichnung abschalten oder die neue Rate als normal markieren. Am meisten hilft Drosseln an der Quelle, zum Beispiel in ESPHome."
+    },
     "database_damaged": {
       "title": "Die Recorder-Datenbank ist beschädigt",
       "description": "Die Integritätsprüfung von SQLite hat Fehler gefunden: {details}\n\nStorage Manager löscht nichts aus der Datenbank, bis eine Prüfung wieder bestanden ist. Stößt Home Assistant selbst auf den Schaden, legt es die Datenbank beiseite und beginnt eine neue, leere. Die Recorder-Dokumentation beschreibt die Möglichkeiten. Stelle ein Backup wieder her, wenn du den alten Verlauf brauchst, und starte die Prüfung danach im Storage-Manager-Panel erneut."

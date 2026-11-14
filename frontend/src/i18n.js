@@ -468,6 +468,21 @@ const de = {
   kinds_link: "Regeln nach Sensorart anpassen",
   more_options_title: "Weitere Optionen",
   more_options_hint: "Backup-Rotation, Warnschwellen, Aktualisierungsintervall und Backup vor dem Löschen stehen in den Optionen der Integration.",
+  whatif_title: "Was-wäre-wenn",
+  whatif_less: "Mit {days} Tagen ca. {bytes} weniger",
+  whatif_more: "Mit {days} Tagen ca. {bytes} mehr",
+  whatif_hint: "Geschätzt aus der letzten Analyse, verglichen mit heute ({days} Tage): nur der Verlauf der Zustände, ohne Ereignisse und Statistiken. Eigene Aufbewahrung pro Entität wird berücksichtigt. Mehr Tage wachsen mit der heutigen Rate.",
+  check_writers: "Plötzliche Vielschreiber",
+  check_writers_ok: "Keine Entität schreibt deutlich mehr als üblich.",
+  check_writers_warning: "{count} Entitäten schreiben mindestens zehnmal so viele Zeilen pro Tag wie üblich (oder als neue Entität alle paar Sekunden).",
+  check_writers_unknown: "Braucht eine Analyse.",
+  writer_rate: "{before} → {now} pro Tag",
+  writer_new: "neu · {now} pro Tag",
+  writers_ack: "Als normal markieren",
+  writers_acked: "Neue Raten als üblich übernommen.",
+  rec_debug_logging: "Debug-Logging ist an ({count})",
+  rec_debug_logging_desc: "Aktiv für: {sources}. Debug-Logging schreibt sehr viel ins Log, kostet CPU und nutzt Speicherkarten ab. In der Integration „Debug-Logging deaktivieren“ wählen oder den Eintrag unter logger: entfernen. Die Größe ist die der aktuellen Logdatei, sobald sie spürbar ist.",
+  debug_default: "alles (logger default)",
 };
 
 const en = {
@@ -937,6 +952,21 @@ const en = {
   kinds_link: "Adjust rules by kind of sensor",
   more_options_title: "More options",
   more_options_hint: "Backup rotation, warning thresholds, update interval and the backup before deleting are in the integration's options.",
+  whatif_title: "What if",
+  whatif_less: "With {days} days about {bytes} less",
+  whatif_more: "With {days} days about {bytes} more",
+  whatif_hint: "Estimated from the last analysis, compared with today ({days} days): state history only, without events and statistics. Retention set per entity is taken into account. More days grow at today's rate.",
+  check_writers: "Sudden heavy writers",
+  check_writers_ok: "No entity writes much more than usual.",
+  check_writers_warning: "{count} entities write at least ten times as many rows per day as usual (or every few seconds as a new entity).",
+  check_writers_unknown: "Needs an analysis.",
+  writer_rate: "{before} → {now} per day",
+  writer_new: "new · {now} per day",
+  writers_ack: "Mark as normal",
+  writers_acked: "New rates taken as usual.",
+  rec_debug_logging: "Debug logging is on ({count})",
+  rec_debug_logging_desc: "On for: {sources}. Debug logging writes a lot to the log, costs CPU and wears out SD cards. Choose “Disable debug logging” on the integration or remove the entry under logger:. The size is that of the current log file once it is noticeable.",
+  debug_default: "everything (logger default)",
 };
 
 const LANGS = { de, en };

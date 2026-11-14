@@ -198,6 +198,16 @@ def build(lang):
                     },
                 },
             },
+            "heavy_writers": {
+                "title": t(
+                    "Entities suddenly write far more history",
+                    "Entitäten schreiben plötzlich viel mehr Verlauf",
+                ),
+                "description": t(
+                    "{count} entities write at least ten times as many rows per day as usual (usual → now): {entities}\n\nThis often follows an update of a device or an integration. Open Storage Manager → Database to see the entity, shorten its history or switch it off, or mark the new rate as normal there. Throttling at the source (for example in ESPHome) helps most.",
+                    "{count} Entitäten schreiben mindestens zehnmal so viele Zeilen pro Tag wie üblich (üblich → jetzt): {entities}\n\nDas passiert oft nach einem Update eines Geräts oder einer Integration. In Storage Manager → Datenbank siehst du die Entität, kannst den Verlauf kürzen, die Aufzeichnung abschalten oder die neue Rate als normal markieren. Am meisten hilft Drosseln an der Quelle, zum Beispiel in ESPHome.",
+                ),
+            },
             "database_damaged": {
                 "title": t(
                     "The recorder database is damaged", "Die Recorder-Datenbank ist beschädigt"

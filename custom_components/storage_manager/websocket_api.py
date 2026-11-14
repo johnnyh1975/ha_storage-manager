@@ -122,6 +122,16 @@ async def _kind_rules(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> M
     return {"kind_rules": rules, "kind_auto": auto}
 
 
+async def _whatif(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return {"results": c.retention_whatif(msg["days"])}
+
+
+async def _ack_writers(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    count = c.acknowledge_writers()
+    await c.async_refresh()
+    return {"acknowledged": count}
+
+
 async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     return await c.async_apply_recorder_changes(
         retention=msg.get("retention") or {},
@@ -281,6 +291,17 @@ def async_setup(hass: HomeAssistant) -> None:
         },
         _dismiss,
     )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/retention_whatif",
+            vol.Required("days"): vol.All(
+                [vol.All(vol.Coerce(int), vol.Range(min=1, max=3650))], vol.Length(min=1, max=20)
+            ),
+        },
+        _whatif,
+    )
+    _register(hass, {"type": f"{DOMAIN}/ack_writers"}, _ack_writers)
     _register(
         hass,
         {

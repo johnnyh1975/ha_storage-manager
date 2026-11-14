@@ -39,6 +39,16 @@ GROWTH_FACTOR = 2.0
 GROWTH_MIN_BYTES = 100 * MIB
 INTEGRITY_STALE = 30 * DAY
 
+# entities that suddenly write far more rows than they used to
+WRITER_FACTOR = 10  # times the usual rows per day
+WRITER_MIN_PER_DAY = 2880  # ... and at least every 30 seconds
+WRITER_NEW_PER_DAY = 17280  # a new entity: every 5 seconds or more often
+WRITER_MIN_SAMPLES = 3  # days of history before an entity has a usual rate
+BASELINE_INTERVAL = 20 * 3600  # one baseline update per day
+BASELINE_WEIGHT = 0.3  # weight of the newest day in the moving average
+BASELINE_MAX_AGE = 30 * DAY  # forget entities that stopped reporting
+WRITERS_SHOWN = 10
+
 BACKUP_MAX_AGE_DAILY = timedelta(hours=36)
 BACKUP_MAX_AGE_CUSTOM = timedelta(days=8)
 ATTEMPT_GRACE = timedelta(hours=1)
@@ -94,6 +104,7 @@ def database_checks(
     integrity: dict[str, Any] | None,
     statistics_issues: dict[str, int] | None,
     now: float,
+    writers: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Checks for the recorder database."""
     checks: list[dict[str, Any]] = []
@@ -152,7 +163,63 @@ def database_checks(
         checks.append(
             _check("statistics", WARNING if count else OK, count=count, types=statistics_issues)
         )
+    checks.append(writers_check(writers))
     return checks
+
+
+def find_writers(
+    baselines: dict[str, list[float]],
+    rates: dict[str, int],
+    skip: set[str] | frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Entities that write far more rows per day than they usually do.
+
+    ``baselines`` maps an entity to [usual rows per day, days seen, last seen].
+    A new entity counts only when there is history for others already (so the
+    first analysis after installing does not flag everything) and it writes
+    very often.
+    """
+    out: list[dict[str, Any]] = []
+    for entity_id, rate in rates.items():
+        if entity_id in skip or rate < WRITER_MIN_PER_DAY:
+            continue
+        base = baselines.get(entity_id)
+        if base is None:
+            if baselines and rate >= WRITER_NEW_PER_DAY:
+                out.append({"entity_id": entity_id, "per_day": rate, "before": None})
+            continue
+        usual, seen = base[0], base[1]
+        if seen >= WRITER_MIN_SAMPLES and rate >= max(usual, 1) * WRITER_FACTOR:
+            out.append({"entity_id": entity_id, "per_day": rate, "before": int(usual)})
+    out.sort(key=lambda w: w["per_day"], reverse=True)
+    return out
+
+
+def update_baselines(
+    baselines: dict[str, list[float]], rates: dict[str, int], now: float
+) -> dict[str, list[float]]:
+    """Fold one day of rows per entity into the usual rate (moving average)."""
+    updated: dict[str, list[float]] = {}
+    for entity_id, base in baselines.items():
+        if entity_id not in rates and now - base[2] <= BASELINE_MAX_AGE:
+            updated[entity_id] = base
+    for entity_id, rate in rates.items():
+        known = baselines.get(entity_id)
+        if known is None:
+            updated[entity_id] = [float(rate), 1, now]
+        else:
+            usual = known[0] * (1 - BASELINE_WEIGHT) + rate * BASELINE_WEIGHT
+            updated[entity_id] = [round(usual, 1), known[1] + 1, now]
+    return updated
+
+
+def writers_check(writers: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Health check row for sudden heavy writers."""
+    if writers is None:
+        return _check("writers", UNKNOWN)
+    if not writers:
+        return _check("writers", OK)
+    return _check("writers", WARNING, count=len(writers), writers=writers[:WRITERS_SHOWN])
 
 
 def _validate(hass: HomeAssistant) -> dict[str, int]:

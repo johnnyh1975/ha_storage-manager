@@ -158,6 +158,14 @@ export const HealthSection = (Base) =>
         <div class="txt">
           <div>${t(`check_${check.key}`)}</div>
           <div class="muted small">${t(`check_${check.key}_${check.status}`, v)}</div>
+          ${check.key === "writers" && Array.isArray(check.values?.writers)
+            ? html`<ul class="group-members">${check.values.writers.map(
+                (w) => html`<li><button class="linklike" @click=${() => this._openDetail?.(w.entity_id)}>${this._rowById?.(w.entity_id)?.name || w.entity_id}</button>
+                  <span class="muted small">${w.before === null || w.before === undefined
+                    ? t("writer_new", { now: number(w.per_day, this.lang) })
+                    : t("writer_rate", { before: number(w.before, this.lang), now: number(w.per_day, this.lang) })}</span></li>`
+              )}</ul>`
+            : nothing}
         </div>
         ${extra}
       </div>`;
@@ -181,6 +189,16 @@ export const HealthSection = (Base) =>
       </div>`;
     }
 
+    async _ackWriters() {
+      try {
+        await this._ws("ack_writers");
+        this._showToast(this.t("writers_acked"));
+        await this._loadHealth(true);
+      } catch (err) {
+        this._showToast(this.t("error", { msg: err.message }));
+      }
+    }
+
     _checkAction(check) {
       const t = this.t;
       if (check.key === "integrity")
@@ -189,6 +207,8 @@ export const HealthSection = (Base) =>
         const done = check.status === "ok";
         return html`<button class="btn" @click=${() => this._attest(check.key, !done)}>${t(done ? "attest_undo" : `attest_${check.key}`)}</button>`;
       }
+      if (check.key === "writers" && check.status === "warning")
+        return html`<button class="btn" ?disabled=${!!this._working} @click=${this._ackWriters}>${t("writers_ack")}</button>`;
       if (check.key === "statistics" && check.status === "warning")
         return html`<button class="btn" @click=${() => this._navigate("/developer-tools/statistics")}>${t("open")}</button>`;
       return nothing;

@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     ISSUE_DATABASE_DAMAGED,
     ISSUE_FORECAST,
+    ISSUE_HEAVY_WRITERS,
     ISSUE_LOW_SPACE,
     ISSUE_PACKAGES,
     ISSUE_RESTART,
@@ -132,6 +133,27 @@ def async_update_issues(hass: HomeAssistant, coordinator: StorageCoordinator) ->
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_DATABASE_DAMAGED)
 
+    writers = coordinator.store.data.heavy_writers or []
+    if writers:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_HEAVY_WRITERS,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_HEAVY_WRITERS,
+            translation_placeholders={
+                "count": str(len(writers)),
+                "entities": ", ".join(
+                    f"{w['entity_id']}: {w['before'] if w['before'] is not None else '–'}"
+                    f" → {w['per_day']} /24 h"
+                    for w in writers[:5]
+                ),
+            },
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_HEAVY_WRITERS)
+
 
 @callback
 def async_clear_issues(hass: HomeAssistant) -> None:
@@ -142,6 +164,7 @@ def async_clear_issues(hass: HomeAssistant) -> None:
         ISSUE_RESTART,
         ISSUE_PACKAGES,
         ISSUE_DATABASE_DAMAGED,
+        ISSUE_HEAVY_WRITERS,
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 

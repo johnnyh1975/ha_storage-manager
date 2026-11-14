@@ -32,7 +32,7 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import advisor, database, disk, files, health, recorder_config, repack, safety
+from . import advisor, database, disk, files, health, logs, recorder_config, repack, safety
 from . import backups as backup_mod
 from . import usage as usage_mod
 from .const import (
@@ -324,6 +324,13 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
             "recorder": self.recorder_status(),
             "retention_potential": await self._async_retention_potential(),
+            "logging": {
+                "debug": logs.debug_sources(),
+                "log_bytes": await hass.async_add_executor_job(
+                    logs.log_file_size, hass.config.config_dir
+                ),
+            },
+            "heavy_writers": self.store.data.heavy_writers,
             "freed_total": self.store.data.freed_total,
             "busy": self.busy,
         }
@@ -397,6 +404,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 file_bytes, int(sum(table_sizes.values())) if table_sizes else file_bytes
             )
             self._usage_at = 0.0
+            self._update_writers(result)
             self.store.schedule_save()
         finally:
             self.analysis_running = False
@@ -952,6 +960,53 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._potential_key = key
         return self._potential
 
+    def _update_writers(self, analysis: dict[str, Any]) -> None:
+        """Compare rows per day with the usual rate; learn the rate once a day."""
+        data = self.store.data
+        rates = {
+            entity_id: int(info.get("rows_24h") or 0)
+            for entity_id, info in (analysis.get("entities") or {}).items()
+        }
+        handled = {*data.excluded, *(e for e, t in data.retention.items() if t == "drop")}
+        data.heavy_writers = health.find_writers(data.rate_baselines, rates, handled)
+        now = time.time()
+        if now - data.baselines_at >= health.BASELINE_INTERVAL:
+            data.rate_baselines = health.update_baselines(data.rate_baselines, rates, now)
+            data.baselines_at = now
+        self.invalidate("health")
+
+    def acknowledge_writers(self) -> int:
+        """Accept the current rates of the flagged entities as their usual rate."""
+        data = self.store.data
+        writers = data.heavy_writers or []
+        now = time.time()
+        for writer in writers:
+            data.rate_baselines[writer["entity_id"]] = [
+                float(writer["per_day"]),
+                float(health.WRITER_MIN_SAMPLES),
+                now,
+            ]
+        data.heavy_writers = []
+        self.store.schedule_save()
+        self.invalidate("health")
+        return len(writers)
+
+    def retention_whatif(self, days: list[int]) -> list[dict[str, int]]:
+        """Estimated change in state history for other global retention values."""
+        data = self.store.data
+        entities = (data.analysis or {}).get("entities") or {}
+        keep_days = int(get_instance(self.hass).keep_days)
+        return [
+            advisor.retention_whatif(
+                entities,
+                keep_days=keep_days,
+                days=d,
+                tiers=data.retention,
+                excluded=set(data.excluded),
+            )
+            for d in days
+        ]
+
     async def async_apply_kind_auto(self) -> list[str]:
         """Give new sensors their kind's rule where the user switched that on.
 
@@ -1174,6 +1229,20 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "view": "database",
                 }
             )
+        debug = (self.data.get("logging") or {}).get("debug") or []
+        log_bytes = int((self.data.get("logging") or {}).get("log_bytes") or 0)
+        if debug:
+            recs.append(
+                {
+                    "id": "debug_logging",
+                    # the log size only matters once it is noticeable
+                    "bytes": log_bytes if log_bytes >= 1024 * 1024 else 0,
+                    "count": len(debug),
+                    "sources": debug,
+                    "action": "navigate",
+                    "url": "/config/logs",
+                }
+            )
         recs.sort(key=lambda r: r["bytes"], reverse=True)
         return recs
 
@@ -1347,6 +1416,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             integrity=self.store.data.integrity,
             statistics_issues=stat_issues,
             now=time.time(),
+            writers=self.store.data.heavy_writers,
         )
         backup_checks = health.backup_checks(
             info,

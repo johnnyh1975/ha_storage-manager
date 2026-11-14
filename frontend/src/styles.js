@@ -516,6 +516,8 @@ export const styles = css`
   .btn:disabled { opacity: 0.5; cursor: default; }
   .hint { color: var(--secondary-text-color); margin-top: 2px; }
   .hint::before { content: "💡 "; }
+  .field.whatif { grid-column: 1 / -1; }
+  .field.whatif .chips { margin-top: 4px; }
   .kind-auto { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
   @media (max-width: 600px) {
     .list-row.kind-row { grid-template-columns: 1fr; gap: 6px; }

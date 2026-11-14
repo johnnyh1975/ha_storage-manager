@@ -88,6 +88,7 @@ def test_database_checks() -> None:
             integrity={"result": "ok", "at": NOW - DAY},
             statistics_issues={},
             now=NOW,
+            writers=[],
         )
     )
     assert {c["status"] for c in quiet.values()} == {health.OK}

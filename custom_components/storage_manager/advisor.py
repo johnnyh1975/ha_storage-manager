@@ -344,6 +344,45 @@ def group_savings(
     return totals
 
 
+def retention_whatif(
+    entities: Mapping[str, Mapping[str, Any]],
+    *,
+    keep_days: int,
+    days: int,
+    tiers: Mapping[str, str],
+    excluded: set[str] | frozenset[str] = frozenset(),
+) -> dict[str, int]:
+    """Bytes of state history gained (+) or freed (-) with another global retention.
+
+    Each entity keeps min(its own tier, global days). The rows it would keep
+    are estimated from its current rows and its rows per day; history that
+    does not exist yet grows at today's rate. Statistics and events are not
+    included.
+    """
+    delta = 0
+    rows_delta = 0
+    for entity_id, info in entities.items():
+        if entity_id in excluded:
+            continue
+        rows = int(info.get("rows") or 0)
+        per_day = int(info.get("rows_24h") or 0)
+        size = int(info.get("est_state_bytes", info.get("est_bytes", 0)) or 0)
+        if not rows or not size:
+            continue
+        own = TIER_DAYS.get(tiers.get(entity_id, ""))
+        now_window = keep_days if own is None else min(own, keep_days)
+        new_window = days if own is None else min(own, days)
+        if new_window == now_window:
+            continue
+        if new_window < now_window:
+            kept = min(rows, per_day * new_window)
+        else:
+            kept = rows + per_day * (new_window - now_window)
+        rows_delta += kept - rows
+        delta += int(size / rows * (kept - rows))
+    return {"days": days, "bytes": delta, "rows": rows_delta}
+
+
 def kind_summary(
     all_facts: list[EntityFacts], policy: Mapping[str, str] | None = None
 ) -> list[dict[str, Any]]:

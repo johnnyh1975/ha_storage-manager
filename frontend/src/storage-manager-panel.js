@@ -30,6 +30,7 @@ const REC_ICONS = {
   statistics: "mdi:chart-box-outline",
   repack: "mdi:database-refresh",
   top_entities: "mdi:database-alert",
+  debug_logging: "mdi:bug-outline",
   retention: "mdi:calendar-clock",
 };
 
@@ -45,6 +46,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     route: { attribute: false },
     panel: { attribute: false },
     _tab: { state: true },
+    _whatif: { state: true },
     _overview: { state: true },
     _entities: { state: true },
     _backups: { state: true },
@@ -546,6 +548,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     const vars = {
       count: r.count ?? "",
       share: r.share ? percent(r.share, this.lang) : "",
+      sources: (r.sources || []).map((s) => (s === "default" ? t("debug_default") : this._integrationName(s))).join(", "),
     };
     const title = t(`rec_${r.id}`, vars);
     const desc = t(`rec_${r.id}_desc`, vars);
@@ -560,7 +563,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         ${r.bytes ? html`<span class="amount">${bytes(r.bytes, this.lang)}</span>` : nothing}
         ${r.action === "clean"
           ? html`<button class="btn" ?disabled=${busy} @click=${() => this._previewAndClean(r.targets)}>${t("preview")}</button>`
-          : html`<button class="btn" @click=${() => this._setTab(r.view)}>${t("open")}</button>`}
+          : html`<button class="btn" @click=${() => (r.url ? this._navigate(r.url) : this._setTab(r.view))}>${t("open")}</button>`}
       </div>
     </div>`;
   }

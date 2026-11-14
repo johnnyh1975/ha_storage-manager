@@ -132,6 +132,10 @@
         }
       }
     },
+    "heavy_writers": {
+      "title": "Entities suddenly write far more history",
+      "description": "{count} entities write at least ten times as many rows per day as usual (usual → now): {entities}\n\nThis often follows an update of a device or an integration. Open Storage Manager → Database to see the entity, shorten its history or switch it off, or mark the new rate as normal there. Throttling at the source (for example in ESPHome) helps most."
+    },
     "database_damaged": {
       "title": "The recorder database is damaged",
       "description": "SQLite's integrity check found errors: {details}\n\nStorage Manager deletes nothing from the database until a check passes again. When Home Assistant itself runs into the damage, it moves the database aside and starts a new, empty one. See the recorder documentation for your options, restore a backup if you need the old history, and run the check again from the Storage Manager panel."
