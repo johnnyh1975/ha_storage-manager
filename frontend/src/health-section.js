@@ -102,10 +102,16 @@ export const HealthSection = (Base) =>
       const t = this.t;
       const items = [];
       const space = safety.space;
-      items.push(html`<li class=${space.ok ? "" : "bad"}>${t(space.ok ? "safety_space_ok" : "safety_space_low", {
+      const spaceVars = {
         need: bytes(space.need, this.lang),
         free: bytes(space.free, this.lang),
-      })}</li>`);
+        work: bytes(space.work, this.lang),
+        backup: bytes(space.backup, this.lang),
+      };
+      const split = space.backup
+        ? ` ${t(space.backup_source === "previous" ? "safety_space_split_previous" : "safety_space_split_file", spaceVars)}`
+        : "";
+      items.push(html`<li class=${space.ok ? "" : "bad"}>${t(space.ok ? "safety_space_ok" : "safety_space_low", spaceVars)}${split}</li>`);
       if (safety.integrity !== "unsupported") items.push(html`<li>${t(`safety_integrity_${safety.integrity}`)}</li>`);
       const b = safety.backup;
       items.push(html`<li class=${b.action === "unavailable" ? "bad" : ""}>${t(`safety_backup_${b.action}`, {

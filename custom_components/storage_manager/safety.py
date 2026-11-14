@@ -63,13 +63,24 @@ class SafetyError(HomeAssistantError):
 # ----------------------------------------------------------------------
 
 
-def space_needed(db_size: int, *, with_backup: bool) -> int:
-    """Free space the deletion needs: work space plus room for a backup."""
-    need = max(MIN_FREE, db_size // 2)
-    if with_backup:
-        # a backup holds the whole database; compression only helps
-        need += db_size
-    return need
+WORK_FACTOR = 3
+BACKUP_MARGIN = 1.1
+
+
+def work_space(live_bytes: int, delete_bytes: int) -> int:
+    """Room the deletion itself needs.
+
+    Deleting rows writes the touched pages to the write-ahead log and frees
+    pages inside the file; the file does not grow. A few times the deleted
+    bytes is plenty, half of the data is the upper bound (HA Housekeeper's
+    rule) and 512 MB the floor.
+    """
+    return max(MIN_FREE, min(live_bytes // 2, delete_bytes * WORK_FACTOR))
+
+
+def space_needed(*, live_bytes: int, delete_bytes: int, backup_bytes: int) -> int:
+    """Free space the deletion needs: work space plus room for a new backup."""
+    return work_space(live_bytes, delete_bytes) + backup_bytes
 
 
 # ----------------------------------------------------------------------
@@ -190,6 +201,24 @@ async def async_recent_backup(
     return _describe(best[1], created=False) if best else None
 
 
+async def async_backup_size(hass: HomeAssistant, fallback: int) -> tuple[int, str]:
+    """Expected size of a new backup: the newest one with the database, else the file."""
+    manager = backup_mod.backup_manager(hass)
+    if manager is not None:
+        backups, _errors = await manager.async_get_backups()
+        dated = [
+            (when, b)
+            for b in backups.values()
+            if getattr(b, "database_included", False) and (when := _when(b)) is not None
+        ]
+        if dated:
+            newest = max(dated, key=lambda item: item[0])[1]
+            size = max((s.size for s in newest.agents.values()), default=0)
+            if size:
+                return int(size * BACKUP_MARGIN), "previous"
+    return fallback, "file"
+
+
 async def async_create_backup(hass: HomeAssistant) -> dict[str, Any]:
     """Create a backup of Home Assistant with the database and verify it."""
     manager = backup_mod.backup_manager(hass)
@@ -237,13 +266,20 @@ async def async_plan(
     path: Path | None,
     store: ManagerStore,
     db_size: int,
+    live_bytes: int,
+    delete_bytes: int,
     disk_free: int,
     backup_enabled: bool,
+    backup_needed: bool = True,
 ) -> dict[str, Any]:
     """What the chain would do, without doing it (for the preview)."""
-    recent = await async_recent_backup(hass) if backup_enabled else None
-    with_backup = backup_enabled and recent is None
-    need = space_needed(db_size, with_backup=with_backup)
+    use_backup = backup_enabled and backup_needed
+    recent = await async_recent_backup(hass) if use_backup else None
+    backup_bytes, backup_source = (
+        await async_backup_size(hass, db_size) if use_backup and recent is None else (0, None)
+    )
+    work = work_space(live_bytes, delete_bytes)
+    need = work + backup_bytes
     manager = backup_mod.backup_manager(hass)
     agents = backup_targets(manager)[0] if manager is not None else []
     integrity = (
@@ -251,8 +287,10 @@ async def async_plan(
         if path is None
         else ("cached" if integrity_fresh(store.data.integrity, time.time()) else "run")
     )
-    if not backup_enabled:
-        backup: dict[str, Any] = {"action": "disabled"}
+    if not backup_needed:
+        backup: dict[str, Any] = {"action": "not_needed"}
+    elif not backup_enabled:
+        backup = {"action": "disabled"}
     elif recent is not None:
         backup = {"action": "reuse", "name": recent["name"], "date": recent["date"]}
     elif agents:
@@ -260,7 +298,14 @@ async def async_plan(
     else:
         backup = {"action": "unavailable"}
     return {
-        "space": {"need": need, "free": disk_free, "ok": disk_free >= need},
+        "space": {
+            "need": need,
+            "free": disk_free,
+            "ok": disk_free >= need,
+            "work": work,
+            "backup": backup_bytes,
+            "backup_source": backup_source,
+        },
         "integrity": integrity,
         "backup": backup,
     }
@@ -272,6 +317,8 @@ async def async_run(
     path: Path | None,
     store: ManagerStore,
     db_size: int,
+    live_bytes: int,
+    delete_bytes: int,
     disk_free: int,
     backup: bool,
     on_step: Callable[[str], None] | None = None,
@@ -284,7 +331,8 @@ async def async_run(
             on_step(key)
 
     recent = await async_recent_backup(hass) if backup else None
-    need = space_needed(db_size, with_backup=backup and recent is None)
+    backup_bytes = (await async_backup_size(hass, db_size))[0] if backup and recent is None else 0
+    need = space_needed(live_bytes=live_bytes, delete_bytes=delete_bytes, backup_bytes=backup_bytes)
     if disk_free < need:
         raise SafetyError("no_space", f"{need}")
     steps.append({"step": "space", "result": RESULT_OK, "need": need, "free": disk_free})

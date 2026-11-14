@@ -79,6 +79,11 @@ ALL_CLEAN_TARGETS = (
 DB_DELETE_TARGETS = ("orphans", "statistics", "purge")
 
 
+def _needs_backup(db_targets: list[str]) -> bool:
+    """Outdated rows go anyway in Home Assistant's nightly purge: no backup for those."""
+    return any(t != "purge" for t in db_targets)
+
+
 def _wal_size(path: Any) -> int | None:
     """Size of the SQLite write-ahead log (blocking)."""
     if path is None:
@@ -528,7 +533,10 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if self._lock.locked():
                         raise HomeAssistantError("Another cleanup is running")
                     async with self._lock:
-                        chain = await self._async_safety(skip_backup=skip_backup)
+                        chain = await self._async_safety(
+                            skip_backup=skip_backup,
+                            delete_bytes=self._estimate_purge(by_tier),
+                        )
                     result["backup"] = chain.get("backup")
                 except safety.SafetyError as err:
                     result["blocked"] = {"reason": err.reason, "detail": err.detail}
@@ -1036,22 +1044,40 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "docker" in targets:
             preview["docker"] = {"bytes": None, "possible": bool(data["is_hassio"])}
         preview["total"] = sum(int(p.get("bytes") or 0) for p in preview.values())
-        if set(targets) & set(DB_DELETE_TARGETS):
-            preview["safety"] = await self.async_safety_plan()
+        db_targets = [t for t in DB_DELETE_TARGETS if t in targets]
+        if db_targets:
+            preview["safety"] = await self.async_safety_plan(
+                delete_bytes=sum(int((preview.get(t) or {}).get("bytes") or 0) for t in db_targets),
+                backup_needed=_needs_backup(db_targets),
+            )
         return preview
 
-    async def async_safety_plan(self) -> dict[str, Any]:
+    def _live_bytes(self) -> int:
+        """Data in the database file (without free pages) as far as known."""
+        repack_plan = self.data["database"].get("repack")
+        if repack_plan is not None:
+            return int(repack_plan["live_bytes"])
+        return int(self.data["database"]["size"] or 0)
+
+    async def async_safety_plan(
+        self, *, delete_bytes: int = 0, backup_needed: bool = True
+    ) -> dict[str, Any]:
         """Preview of the safety chain for the current state."""
         return await safety.async_plan(
             self.hass,
             path=database.sqlite_path(self.hass),
             store=self.store,
             db_size=int(self.data["database"]["size"] or 0),
+            live_bytes=self._live_bytes(),
+            delete_bytes=delete_bytes,
             disk_free=int(self.data["disk"]["free"]),
             backup_enabled=bool(self.options[CONF_BACKUP_BEFORE_DELETE]),
+            backup_needed=backup_needed,
         )
 
-    async def _async_safety(self, *, skip_backup: bool) -> dict[str, Any]:
+    async def _async_safety(
+        self, *, skip_backup: bool, delete_bytes: int = 0, backup_needed: bool = True
+    ) -> dict[str, Any]:
         """Run the safety chain on fresh numbers; raises safety.SafetyError."""
         await self.async_refresh()
         try:
@@ -1060,8 +1086,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 path=database.sqlite_path(self.hass),
                 store=self.store,
                 db_size=int(self.data["database"]["size"] or 0),
+                live_bytes=self._live_bytes(),
+                delete_bytes=delete_bytes,
                 disk_free=int(self.data["disk"]["free"]),
-                backup=bool(self.options[CONF_BACKUP_BEFORE_DELETE]) and not skip_backup,
+                backup=bool(self.options[CONF_BACKUP_BEFORE_DELETE])
+                and backup_needed
+                and not skip_backup,
                 on_step=lambda key: self._set_busy(f"safety_{key}"),
             )
         finally:
@@ -1190,7 +1220,11 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if db_targets or "repack" in targets:
                     try:
                         if db_targets:
-                            safety_result = await self._async_safety(skip_backup=skip_backup)
+                            safety_result = await self._async_safety(
+                                skip_backup=skip_backup,
+                                delete_bytes=self._delete_estimate(db_targets),
+                                backup_needed=_needs_backup(db_targets),
+                            )
                         else:
                             await self._async_require_integrity()
                     except safety.SafetyError as err:
@@ -1231,6 +1265,16 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "blocked": blocked,
                 "backup": backup_info,
             }
+
+    def _delete_estimate(self, db_targets: list[str]) -> int:
+        """Bytes the database targets are expected to delete."""
+        total = 0
+        if "orphans" in db_targets:
+            total += int(self.orphans()["entity_bytes"])
+        if "purge" in db_targets:
+            obsolete = (self.store.data.analysis or {}).get("obsolete") or {}
+            total += int(obsolete.get("bytes") or 0)
+        return total
 
     async def _clean_outside_database(
         self,

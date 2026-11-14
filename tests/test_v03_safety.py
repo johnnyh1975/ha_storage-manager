@@ -205,10 +205,31 @@ async def test_async_repack_methods(hass: HomeAssistant, tmp_path: Path) -> None
 
 
 def test_space_needed() -> None:
-    """Work space is at least 512 MB; a new backup needs the database once more."""
-    assert safety.space_needed(100 * MB, with_backup=False) == safety.MIN_FREE
-    assert safety.space_needed(4000 * MB, with_backup=False) == 2000 * MB
-    assert safety.space_needed(4000 * MB, with_backup=True) == 6000 * MB
+    """Work space follows the deletion, capped at half the data, at least 512 MB."""
+    assert safety.work_space(4000 * MB, 10 * MB) == safety.MIN_FREE
+    assert safety.work_space(4000 * MB, 600 * MB) == 1800 * MB
+    assert safety.work_space(4000 * MB, 5000 * MB) == 2000 * MB
+    assert (
+        safety.space_needed(live_bytes=4000 * MB, delete_bytes=10 * MB, backup_bytes=3000 * MB)
+        == safety.MIN_FREE + 3000 * MB
+    )
+
+
+async def test_backup_size(hass: HomeAssistant) -> None:
+    """A new backup is expected as large as the newest one with the database."""
+    with patch.object(safety.backup_mod, "backup_manager", return_value=None):
+        assert await safety.async_backup_size(hass, 123) == (123, "file")
+    manager = _Manager(
+        [_backup("old", age=timedelta(days=3)), _backup("new"), _backup("nodb", database=False)]
+    )
+    manager.backups["old"].agents["backup.local"].size = 500
+    manager.backups["new"].agents["backup.local"].size = 1000
+    with patch.object(safety.backup_mod, "backup_manager", return_value=manager):
+        assert await safety.async_backup_size(hass, 123) == (1100, "previous")
+    empty = _Manager([_backup("zero")])
+    empty.backups["zero"].agents["backup.local"].size = 0
+    with patch.object(safety.backup_mod, "backup_manager", return_value=empty):
+        assert await safety.async_backup_size(hass, 123) == (123, "file")
 
 
 def test_integrity_check_results(tmp_path: Path) -> None:
@@ -418,18 +439,39 @@ async def test_plan_and_run(hass: HomeAssistant, tmp_path: Path) -> None:
     manager = _Manager([_backup("recent")])
     with patch.object(safety.backup_mod, "backup_manager", return_value=manager):
         plan = await safety.async_plan(
-            hass, path=db, store=store, db_size=10 * MB, disk_free=10_000 * MB, backup_enabled=True
+            hass,
+            path=db,
+            store=store,
+            db_size=10 * MB,
+            live_bytes=10 * MB,
+            delete_bytes=0,
+            disk_free=10_000 * MB,
+            backup_enabled=True,
         )
         assert plan["backup"]["action"] == "reuse"
         assert plan["integrity"] == "run"
         assert plan["space"]["ok"] is True
         result = await safety.async_run(
-            hass, path=db, store=store, db_size=10 * MB, disk_free=10_000 * MB, backup=True
+            hass,
+            path=db,
+            store=store,
+            db_size=10 * MB,
+            live_bytes=10 * MB,
+            delete_bytes=0,
+            disk_free=10_000 * MB,
+            backup=True,
         )
         assert result["backup"]["backup_id"] == "recent"
         assert [s["step"] for s in result["steps"]] == ["space", "integrity", "backup"]
         plan = await safety.async_plan(
-            hass, path=db, store=store, db_size=10 * MB, disk_free=1, backup_enabled=True
+            hass,
+            path=db,
+            store=store,
+            db_size=10 * MB,
+            live_bytes=10 * MB,
+            delete_bytes=0,
+            disk_free=1,
+            backup_enabled=True,
         )
         assert plan["integrity"] == "cached"
         assert plan["space"]["ok"] is False
@@ -442,6 +484,8 @@ async def test_plan_and_run(hass: HomeAssistant, tmp_path: Path) -> None:
             path=None,
             store=store,
             db_size=10 * MB,
+            live_bytes=10 * MB,
+            delete_bytes=0,
             disk_free=10_000 * MB,
             backup_enabled=True,
         )
@@ -452,6 +496,8 @@ async def test_plan_and_run(hass: HomeAssistant, tmp_path: Path) -> None:
             path=db,
             store=store,
             db_size=10 * MB,
+            live_bytes=10 * MB,
+            delete_bytes=0,
             disk_free=10_000 * MB,
             backup=True,
             on_step=steps.append,
@@ -460,22 +506,50 @@ async def test_plan_and_run(hass: HomeAssistant, tmp_path: Path) -> None:
         assert steps == ["integrity", "backup"]
         with pytest.raises(safety.SafetyError) as err:
             await safety.async_run(
-                hass, path=db, store=store, db_size=10 * MB, disk_free=1, backup=True
+                hass,
+                path=db,
+                store=store,
+                db_size=10 * MB,
+                live_bytes=10 * MB,
+                delete_bytes=0,
+                disk_free=1,
+                backup=True,
             )
         assert err.value.reason == "no_space"
 
     with patch.object(safety.backup_mod, "backup_manager", return_value=_Manager([], agents=())):
         plan = await safety.async_plan(
-            hass, path=None, store=store, db_size=0, disk_free=0, backup_enabled=True
+            hass,
+            path=None,
+            store=store,
+            db_size=0,
+            live_bytes=0,
+            delete_bytes=0,
+            disk_free=0,
+            backup_enabled=True,
         )
     assert plan["backup"] == {"action": "unavailable"}
     with patch.object(safety.backup_mod, "backup_manager", return_value=None):
         plan = await safety.async_plan(
-            hass, path=None, store=store, db_size=0, disk_free=0, backup_enabled=True
+            hass,
+            path=None,
+            store=store,
+            db_size=0,
+            live_bytes=0,
+            delete_bytes=0,
+            disk_free=0,
+            backup_enabled=True,
         )
     assert plan["backup"] == {"action": "unavailable"}
     plan = await safety.async_plan(
-        hass, path=None, store=store, db_size=0, disk_free=0, backup_enabled=False
+        hass,
+        path=None,
+        store=store,
+        db_size=0,
+        live_bytes=0,
+        delete_bytes=0,
+        disk_free=0,
+        backup_enabled=False,
     )
     assert plan["backup"] == {"action": "disabled"}
 
@@ -487,7 +561,14 @@ async def test_plan_and_run(hass: HomeAssistant, tmp_path: Path) -> None:
         pytest.raises(safety.SafetyError) as err,
     ):
         await safety.async_run(
-            hass, path=db, store=store, db_size=0, disk_free=10_000 * MB, backup=False
+            hass,
+            path=db,
+            store=store,
+            db_size=0,
+            live_bytes=0,
+            delete_bytes=0,
+            disk_free=10_000 * MB,
+            backup=False,
         )
     assert err.value.reason == "corrupt"
     assert err.value.detail == "page 3"
@@ -564,6 +645,15 @@ async def test_clean_blocked_keeps_safe_part(hass: HomeAssistant) -> None:
     assert "files" in result["results"]
     purge.assert_not_awaited()
     assert coordinator.store.data.history[-1]["details"]["blocked"] == "no_space"
+    # purging outdated rows alone runs without a backup
+    run = AsyncMock(return_value={"steps": [], "backup": None})
+    with (
+        patch.object(coord_mod.safety, "async_run", run),
+        patch.object(coord_mod.database, "async_purge", AsyncMock()),
+        patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)),
+    ):
+        await coordinator.async_clean(["purge"])
+    assert run.await_args.kwargs["backup"] is False
 
 
 async def test_repack_needs_clean_integrity(hass: HomeAssistant, tmp_path: Path) -> None:
@@ -679,6 +769,11 @@ async def test_ws_integrity_and_safety_preview(
         await client.send_json({"id": 2, "type": f"{DOMAIN}/preview", "targets": ["purge"]})
         msg = await client.receive_json()
         assert msg["success"], msg
+        # outdated rows go in Home Assistant's nightly purge anyway: no backup
+        assert msg["result"]["safety"]["backup"] == {"action": "not_needed"}
+        assert msg["result"]["safety"]["space"]["backup"] == 0
+        await client.send_json({"id": 4, "type": f"{DOMAIN}/preview", "targets": ["orphans"]})
+        msg = await client.receive_json()
         assert msg["result"]["safety"]["backup"] == {"action": "disabled"}
         assert msg["result"]["safety"]["integrity"] == "cached"
 
