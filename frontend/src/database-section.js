@@ -151,7 +151,7 @@ export const DatabaseSection = (Base) =>
                 </div>`
               : nothing}
             <div class="row" style="margin-top:12px">
-              <span class="muted small">${ent?.estimated_sizes === false ? t("db_calibrated") : ent?.dialect === "mysql" && ent?.calibrated ? t("db_estimated_innodb") : t("db_estimated")}
+              <span class="muted small">${ent?.estimated_sizes === false ? t("db_calibrated") : ent?.dialect === "mysql" && ent?.calibrated ? t("db_estimated_innodb") : ent?.scaled_to_file ? t("db_scaled") : t("db_estimated")}
                 ${rec.yaml_filters?.uses_include ? html` <b>${t("yaml_include_warning")}</b>` : nothing}</span>
               <span class="spacer"></span>
               <button class="btn" ?disabled=${running || !!this._working} @click=${this._analyze}>${t("analyze")}</button>

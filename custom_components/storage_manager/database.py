@@ -183,7 +183,7 @@ def sqlite_file_size(path: Path | None) -> int | None:
     return total
 
 
-def _table_sizes(session: Session, dialect: str) -> dict[str, int]:
+def _table_sizes(session: Session, dialect: str, errors: list[str] | None = None) -> dict[str, int]:
     queries = [Q_TABLE_SIZES.get(dialect)]
     if dialect == "sqlite":
         queries.append(Q_TABLE_SIZES_SQLITE_LEGACY)
@@ -196,6 +196,8 @@ def _table_sizes(session: Session, dialect: str) -> dict[str, int]:
                 sizes[str(name).lower()] = sizes.get(str(name).lower(), 0) + int(size or 0)
         except Exception as err:  # noqa: BLE001 - dbstat may be compiled out
             _LOGGER.debug("Table sizes not available on %s: %s", dialect, err)
+            if errors is not None:
+                errors.append(str(err).splitlines()[0][:200])
             session.rollback()
             continue
         return sizes
@@ -366,18 +368,22 @@ def _analyze(
             and dialect == "sqlite"
             and time.time() - float(cached_sizes.get("at") or 0) < TABLE_SIZES_MAX_AGE
         )
+        size_errors: list[str] = []
         if fresh and cached_sizes is not None:
             table_sizes = dict(cached_sizes.get("sizes") or {})
             sizes_at = float(cached_sizes["at"])
         else:
-            table_sizes = _table_sizes(session, dialect)
+            table_sizes = _table_sizes(session, dialect, size_errors)
             sizes_at = time.time()
         freelist_bytes = None
+        live_bytes = None
         if dialect == "sqlite":
             try:
                 page_size = int(session.execute(text("PRAGMA page_size")).scalar() or 0)
                 free_pages = int(session.execute(text("PRAGMA freelist_count")).scalar() or 0)
+                pages = int(session.execute(text("PRAGMA page_count")).scalar() or 0)
                 freelist_bytes = page_size * free_pages
+                live_bytes = page_size * max(pages - free_pages, 0)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("PRAGMA freelist_count failed: %s", err)
 
@@ -423,6 +429,25 @@ def _analyze(
     event_bytes = table_sizes.get("events", 0) + table_sizes.get("event_data", 0)
     event_row = event_bytes / max(total_event_rows, 1) if table_sizes else DEFAULT_STATE_ROW
 
+    # Without per-table sizes (SQLite built without dbstat) the default row
+    # sizes are far off. Scale them so that everything together matches the
+    # bytes in use in the file; the split between tables stays an estimate.
+    scaled = False
+    if not table_sizes and live_bytes:
+        raw = (
+            total_rows * state_row
+            + total_attr_len * attr_factor
+            + total_stat_rows * stat_row
+            + total_event_rows * event_row
+        )
+        if raw > 0:
+            factor = live_bytes / raw
+            state_row *= factor
+            attr_factor *= factor
+            stat_row *= factor
+            event_row *= factor
+            scaled = True
+
     for entity_id, info in entities.items():
         stat = statistics.get(entity_id)
         info["stat_rows"] = stat["rows"] if stat else 0
@@ -452,6 +477,8 @@ def _analyze(
             "event_rows": total_event_rows,
             "calibrated": bool(table_sizes),
             "estimated_sizes": dialect in ESTIMATED_SIZES or not table_sizes,
+            "scaled_to_file": scaled,
+            "table_sizes_error": size_errors[-1] if size_errors else None,
             "shared_attribute_rows": attr_totals["shared_rows"],
             "loose_attribute_rows": attr_totals["loose_rows"],
             "loose_attribute_bytes": int(attr_totals["loose_len"] * attr_factor),

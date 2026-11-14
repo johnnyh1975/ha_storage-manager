@@ -127,8 +127,13 @@ def plan(layout: SqliteLayout, disk_free: int, ram_free: int | None) -> dict[str
         option["possible"] = bool(option["possible"]) and disk_free >= int(option["need"])
         if method is None and option["possible"]:
             method = name
+    vacuum_need = int(options[METHOD_VACUUM]["need"])
     return {
         "method": method,
+        # what an ordinary repack lacks, and how much smaller the data would
+        # have to get for it to fit into the space that is free now
+        "missing_bytes": max(vacuum_need - disk_free, 0),
+        "reduce_bytes": max(live - int(max(disk_free - HEADROOM, 0) / 2.2), 0),
         "live_bytes": live,
         "free_pages_bytes": layout.free_bytes,
         "file_bytes": layout.file_bytes,

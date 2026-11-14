@@ -821,6 +821,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "analysis_at": analysis.get("generated_at"),
             "calibrated": (analysis.get("totals") or {}).get("calibrated", False),
             "estimated_sizes": (analysis.get("totals") or {}).get("estimated_sizes", True),
+            "scaled_to_file": (analysis.get("totals") or {}).get("scaled_to_file", False),
             "dialect": analysis.get("dialect"),
             "loose_attribute_bytes": (analysis.get("totals") or {}).get("loose_attribute_bytes", 0),
             "events": analysis.get("events") or [],

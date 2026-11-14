@@ -709,3 +709,22 @@ async def test_repack_falls_back_without_recorder_tasks(
         await coordinator.async_refresh()
         await coordinator.async_clean(["repack"])
     ha_repack.assert_awaited_once()
+
+
+def test_plan_says_what_is_missing() -> None:
+    """Without a fitting method the plan names the gap in space and in data."""
+    page = 4096
+    layout = repack.SqliteLayout(
+        page_size=page,
+        page_count=13_300 * MB // page,
+        freelist_count=9_530 * MB // page,
+        auto_vacuum=0,
+    )
+    plan = repack.plan(layout, disk_free=4_800 * MB, ram_free=2_000 * MB)
+    assert plan["method"] is None
+    assert plan["missing_bytes"] == plan["need"] - 4_800 * MB
+    # after shrinking the data by reduce_bytes an ordinary repack fits
+    smaller = layout.live_bytes - plan["reduce_bytes"]
+    assert int(smaller * 2.2) + repack.HEADROOM <= 4_800 * MB + 1
+    roomy = repack.plan(layout, disk_free=20_000 * MB, ram_free=None)
+    assert roomy["missing_bytes"] == 0 and roomy["reduce_bytes"] == 0

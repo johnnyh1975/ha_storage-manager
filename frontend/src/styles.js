@@ -84,8 +84,8 @@ export const styles = css`
     border-bottom-color: currentColor;
   }
   main {
-    max-width: 1100px;
-    margin: 0 auto;
+    max-width: 1400px;
+    margin: 0;
     padding: var(--sm-gap);
     padding-bottom: 96px;
     display: grid;

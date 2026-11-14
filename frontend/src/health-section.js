@@ -85,7 +85,12 @@ export const HealthSection = (Base) =>
         need: bytes(plan.need, this.lang),
         free: bytes(plan.disk_free, this.lang),
         ram: bytes(plan.options?.memory?.need_ram, this.lang),
+        ram_free: plan.ram_free === null || plan.ram_free === undefined ? "?" : bytes(plan.ram_free, this.lang),
+        mem_need: bytes(plan.options?.memory?.need, this.lang),
         gain: bytes(plan.free_pages_bytes, this.lang),
+        live: bytes(plan.live_bytes, this.lang),
+        missing: bytes(plan.missing_bytes, this.lang),
+        reduce: bytes(plan.reduce_bytes, this.lang),
       };
       if (!plan.free_pages_bytes) return t(plan.can_convert ? "repack_convert_only" : "repack_nothing");
       if (!plan.method) return t("repack_plan_none", vars);

@@ -329,3 +329,26 @@ async def test_overview_has_live_progress(hass: HomeAssistant, hass_ws_client) -
     coordinator.analysis_running = False
     coordinator.analysis_progress = None
     coordinator.busy = None
+
+
+async def test_scaled_to_file_without_dbstat(hass: HomeAssistant, tmp_path) -> None:
+    """Without table sizes the estimates add up to the bytes in use in the file."""
+    await setup_entry(hass)
+    await _record(hass)
+    errors_seen: list[str] = []
+
+    def _no_sizes(session: Any, dialect: str, errors: list[str] | None = None) -> dict:
+        if errors is not None:
+            errors.append("no such table: dbstat")
+            errors_seen.append("x")
+        return {}
+
+    with patch.object(database, "_table_sizes", _no_sizes):
+        result = await database.async_analyze(hass, database.AnalysisControl(pause=0))
+    totals = result["totals"]
+    if result["freelist_bytes"] is None:  # in-memory test database: no pages to scale to
+        assert totals["scaled_to_file"] is False
+        return
+    assert totals["scaled_to_file"] is True
+    assert totals["table_sizes_error"] == "no such table: dbstat"
+    assert errors_seen
