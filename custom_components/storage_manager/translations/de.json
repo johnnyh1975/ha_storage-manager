@@ -143,6 +143,7 @@
         "files": "Caches und alte Logs",
         "orphans": "Verlauf gelöschter Entitäten",
         "statistics": "Statistiken gelöschter Entitäten",
+        "purge": "Alten Verlauf jetzt bereinigen",
         "repack": "Datenbank neu packen",
         "docker": "Ungenutzte Docker-Images (Supervisor)"
       }

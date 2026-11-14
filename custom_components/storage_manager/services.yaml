@@ -12,6 +12,7 @@ cleanup:
             - files
             - orphans
             - statistics
+            - purge
             - repack
             - docker
     dry_run:

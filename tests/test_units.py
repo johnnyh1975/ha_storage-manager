@@ -103,13 +103,18 @@ def test_packages_detection_and_render(tmp_path: Path) -> None:
     info = recorder_config.detect_packages(str(tmp_path))
     assert info.mode == "include_dir_merge_named"
     assert info.directory == (tmp_path / "pkgs").resolve()
-    recorder_config.write_package(info, ["sensor.b", "sensor.a"])
+    recorder_config.write_package(
+        info, recorder_config.build_block(["sensor.b", "sensor.a"], {}, {})
+    )
     data = yaml.safe_load(info.file.read_text())
     assert data == {
         "storage_manager": {"recorder": {"exclude": {"entities": ["sensor.a", "sensor.b"]}}}
     }
-    assert recorder_config.read_package(info) == ["sensor.a", "sensor.b"]
-    recorder_config.write_package(info, [])
+    assert recorder_config.block_entities(recorder_config.read_package(info)) == [
+        "sensor.a",
+        "sensor.b",
+    ]
+    recorder_config.write_package(info, {})
     assert not info.file.exists()
 
 
@@ -123,19 +128,19 @@ def test_packages_outside_config_rejected(tmp_path: Path) -> None:
 
 def test_package_helpers_edge_cases(tmp_path: Path) -> None:
     """Empty renders, missing dirs, broken YAML and odd filter blocks."""
-    assert recorder_config.render_package([], None).endswith("{}\n")
+    assert recorder_config.render_package({}, None).endswith("{}\n")
     missing = recorder_config.PackagesInfo(mode=None, directory=None, file=None)
     try:
-        recorder_config.write_package(missing, ["sensor.a"])
+        recorder_config.write_package(missing, {"exclude": {"entities": ["sensor.a"]}})
     except FileNotFoundError:
         pass
     else:  # pragma: no cover
         raise AssertionError("expected FileNotFoundError")
-    assert recorder_config.read_package(missing) == []
+    assert recorder_config.read_package(missing) == {}
     broken = tmp_path / "storage_manager.yaml"
     broken.write_text("recorder: [unclosed")
     info = recorder_config.PackagesInfo(mode="include_dir_named", directory=tmp_path, file=broken)
-    assert recorder_config.read_package(info) == []
+    assert recorder_config.read_package(info) == {}
     summary = recorder_config.summarize_filters(
         {"include": ["not", "a", "dict"], "exclude": {"domains": ["sun"]}}
     )

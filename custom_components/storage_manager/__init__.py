@@ -102,5 +102,5 @@ async def async_remove_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> 
         recorder_config.detect_packages, hass.config.config_dir
     )
     if info.file is not None:
-        await hass.async_add_executor_job(recorder_config.write_package, info, [])
+        await hass.async_add_executor_job(recorder_config.write_package, info, {})
     await Store(hass, STORAGE_VERSION, STORAGE_KEY).async_remove()

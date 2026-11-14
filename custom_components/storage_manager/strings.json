@@ -143,6 +143,7 @@
         "files": "Caches and old logs",
         "orphans": "History of deleted entities",
         "statistics": "Statistics of deleted entities",
+        "purge": "Purge old history now",
         "repack": "Repack database",
         "docker": "Unused Docker images (Supervisor)"
       }

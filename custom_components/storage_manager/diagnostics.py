@@ -30,6 +30,8 @@ async def async_get_config_entry_diagnostics(
         "recorder": coordinator.recorder_status(),
         "retention": coordinator.store.data.retention,
         "excluded": coordinator.store.data.excluded,
+        "dismissed": coordinator.store.data.dismissed,
+        "db_samples": coordinator.store.data.db_samples[-10:],
         "analysis": {
             "generated_at": analysis.get("generated_at"),
             "duration_s": analysis.get("duration_s"),

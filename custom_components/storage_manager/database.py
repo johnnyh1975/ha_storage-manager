@@ -10,6 +10,7 @@ https://github.com/tonylofgren/aurora-smart-home
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 import time
@@ -138,7 +139,7 @@ def _table_sizes(session: Session, dialect: str) -> dict[str, int]:
     return sizes
 
 
-def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
+def _analyze(hass: HomeAssistant, dialect: str, keep_days: int = 10) -> dict[str, Any]:
     """Run the analysis (blocking, recorder executor)."""
     started = time.monotonic()
     since = time.time() - 86400
@@ -179,6 +180,19 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
             reverse=True,
         )
         table_sizes = _table_sizes(session, dialect)
+        cutoff = time.time() - keep_days * 86400
+        obsolete_states = int(
+            session.execute(
+                text("SELECT COUNT(*) FROM states WHERE last_updated_ts < :c"), {"c": cutoff}
+            ).scalar()
+            or 0
+        )
+        obsolete_events = int(
+            session.execute(
+                text("SELECT COUNT(*) FROM events WHERE time_fired_ts < :c"), {"c": cutoff}
+            ).scalar()
+            or 0
+        )
         freelist_bytes = None
         if dialect == "sqlite":
             try:
@@ -205,7 +219,8 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
     for entity_id, info in entities.items():
         stat = statistics.get(entity_id)
         info["stat_rows"] = stat["rows"] if stat else 0
-        info["est_state_bytes"] = int(info["rows"] * state_row + info["attr_len"] * attr_factor)
+        info["est_attr_bytes"] = int(info["attr_len"] * attr_factor)
+        info["est_state_bytes"] = int(info["rows"] * state_row) + info["est_attr_bytes"]
         info["est_bytes"] = info["est_state_bytes"] + int(info["stat_rows"] * stat_row)
 
     return {
@@ -217,6 +232,21 @@ def _analyze(hass: HomeAssistant, dialect: str) -> dict[str, Any]:
         "events": events[:TOP_EVENTS],
         "table_sizes": table_sizes,
         "freelist_bytes": freelist_bytes,
+        "obsolete": {
+            "states": obsolete_states,
+            "events": obsolete_events,
+            "bytes": int(
+                obsolete_states * state_row
+                + obsolete_events
+                * (
+                    (table_sizes.get("events", 0) + table_sizes.get("event_data", 0))
+                    / max(sum(e["rows"] for e in events), 1)
+                    if table_sizes
+                    else DEFAULT_STATE_ROW
+                )
+            ),
+            "keep_days": keep_days,
+        },
         "totals": {
             "state_rows": total_rows,
             "statistic_rows": total_stat_rows,
@@ -231,13 +261,98 @@ async def async_analyze(hass: HomeAssistant) -> dict[str, Any]:
     instance = get_instance(hass)
     await instance.async_db_ready
     dialect = _dialect(hass)
-    result = await instance.async_add_executor_job(_analyze, hass, dialect)
+    result = await instance.async_add_executor_job(_analyze, hass, dialect, instance.keep_days)
     _LOGGER.debug(
         "Database analysis finished in %ss (%s entities)",
         result["duration_s"],
         len(result["entities"]),
     )
     return result
+
+
+DAY_BUCKET = {
+    "sqlite": "CAST((s.last_updated_ts - :start) / 86400 AS INTEGER)",
+    "mysql": "FLOOR((s.last_updated_ts - :start) / 86400)",
+    "postgresql": "FLOOR((s.last_updated_ts - :start) / 86400)",
+}
+DETAIL_DAYS = 14
+TOP_ATTRIBUTES = 8
+
+
+def _entity_detail(hass: HomeAssistant, dialect: str, entity_id: str) -> dict[str, Any]:
+    """Daily rows and attribute breakdown of one entity (blocking)."""
+    now = time.time()
+    start = now - DETAIL_DAYS * 86400
+    daily = [0] * DETAIL_DAYS
+    attributes: list[dict[str, Any]] = []
+    variants = 0
+    with session_scope(hass=hass, read_only=True) as session:
+        metadata_id = session.execute(
+            text("SELECT metadata_id FROM states_meta WHERE entity_id = :e"), {"e": entity_id}
+        ).scalar()
+        if metadata_id is not None:
+            bucket = DAY_BUCKET.get(dialect, DAY_BUCKET["sqlite"])
+            rows = session.execute(
+                text(
+                    f"SELECT {bucket} AS day, COUNT(*) FROM states s "  # noqa: S608 - constant expression
+                    "WHERE s.metadata_id = :m AND s.last_updated_ts >= :start GROUP BY day"
+                ),
+                {"m": metadata_id, "start": start},
+            )
+            for day, count in rows:
+                index = int(day or 0)
+                if 0 <= index < DETAIL_DAYS:
+                    daily[index] += int(count or 0)
+            variants = int(
+                session.execute(
+                    text(
+                        "SELECT COUNT(DISTINCT attributes_id) FROM states "
+                        "WHERE metadata_id = :m AND attributes_id IS NOT NULL"
+                    ),
+                    {"m": metadata_id},
+                ).scalar()
+                or 0
+            )
+            largest = session.execute(
+                text(
+                    "SELECT sa.shared_attrs FROM state_attributes sa WHERE sa.attributes_id IN "
+                    "(SELECT DISTINCT attributes_id FROM states WHERE metadata_id = :m "
+                    "AND attributes_id IS NOT NULL) ORDER BY LENGTH(sa.shared_attrs) DESC LIMIT 1"
+                ),
+                {"m": metadata_id},
+            ).scalar()
+            attributes = attribute_sizes(largest)
+    return {
+        "entity_id": entity_id,
+        "daily": daily,
+        "days": DETAIL_DAYS,
+        "attribute_variants": variants,
+        "attributes": attributes,
+    }
+
+
+def attribute_sizes(shared_attrs: str | None) -> list[dict[str, Any]]:
+    """Largest attributes of a stored attribute JSON blob."""
+    if not shared_attrs:
+        return []
+    try:
+        data = json.loads(shared_attrs)
+    except ValueError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    sizes = sorted(
+        ((str(key), len(json.dumps(value, separators=(",", ":")))) for key, value in data.items()),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    return [{"name": name, "bytes": size} for name, size in sizes[:TOP_ATTRIBUTES]]
+
+
+async def async_entity_detail(hass: HomeAssistant, entity_id: str) -> dict[str, Any]:
+    """Detail data of one entity."""
+    instance = get_instance(hass)
+    return await instance.async_add_executor_job(_entity_detail, hass, _dialect(hass), entity_id)
 
 
 async def async_database_size(hass: HomeAssistant, analysis: dict[str, Any] | None) -> int | None:
@@ -258,6 +373,16 @@ async def async_purge_entities(hass: HomeAssistant, entity_ids: list[str], keep_
         "recorder",
         "purge_entities",
         {"entity_id": sorted(entity_ids), "keep_days": keep_days},
+        blocking=True,
+    )
+
+
+async def async_purge(hass: HomeAssistant) -> None:
+    """Purge everything older than the global retention now (no repack)."""
+    await hass.services.async_call(
+        "recorder",
+        "purge",
+        {"keep_days": get_instance(hass).keep_days, "repack": False},
         blocking=True,
     )
 

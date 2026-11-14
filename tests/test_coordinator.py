@@ -186,7 +186,7 @@ async def test_entity_rows_with_registry(hass: HomeAssistant) -> None:
         "sensor", "test", "power", device_id=device.id, original_name="Power"
     )
     hass.states.async_set(reg.entity_id, "5")
-    rows = {r["entity_id"]: r for r in entry.runtime_data.entity_rows()["rows"]}
+    rows = {r["entity_id"]: r for r in (await entry.runtime_data.async_entity_rows())["rows"]}
     row = rows[reg.entity_id]
     assert row["name"] == "Power"
     assert row["area"] == "Kitchen"

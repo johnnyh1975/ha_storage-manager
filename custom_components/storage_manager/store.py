@@ -23,6 +23,7 @@ from .const import (
 )
 
 SAVE_DELAY = 10
+DB_SAMPLE_MAX_AGE_DAYS = 90
 
 
 @dataclass
@@ -33,8 +34,14 @@ class ManagerData:
     retention: dict[str, str] = field(default_factory=dict)
     # entities that should not be recorded at all (written to the package file)
     excluded: list[str] = field(default_factory=list)
-    # excluded list as it was when the package file was last written
+    # excluded list as it was when the package file was last written (pre-0.2)
     excluded_written: list[str] = field(default_factory=list)
+    # domains / entity_globs / event_types excluded through the package
+    filters: dict[str, list[str]] = field(default_factory=dict)
+    # global recorder settings managed through the package
+    settings: dict[str, Any] = field(default_factory=dict)
+    # recorder block as it was last written to the package file
+    package_written: dict[str, Any] = field(default_factory=dict)
     # [timestamp, used_bytes, total_bytes]
     samples: list[list[float]] = field(default_factory=list)
     # cleanup log
@@ -43,6 +50,10 @@ class ManagerData:
     # cached database analysis (expensive, refreshed daily / on demand)
     analysis: dict[str, Any] | None = None
     migrated_from: list[str] = field(default_factory=list)
+    # entity_id -> recommended action the user dismissed
+    dismissed: dict[str, str] = field(default_factory=dict)
+    # [timestamp, file_bytes, data_bytes] recorded after each analysis
+    db_samples: list[list[float]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -58,11 +69,19 @@ class ManagerData:
             retention=retention,
             excluded=sorted({str(e) for e in data.get("excluded") or []}),
             excluded_written=sorted({str(e) for e in data.get("excluded_written") or []}),
+            filters={
+                str(k): sorted({str(x) for x in v or []})
+                for k, v in (data.get("filters") or {}).items()
+            },
+            settings=dict(data.get("settings") or {}),
+            package_written=dict(data.get("package_written") or {}),
             samples=[list(s) for s in data.get("samples") or [] if len(s) == 3],
             history=list(data.get("history") or [])[-HISTORY_MAX:],
             freed_total=int(data.get("freed_total") or 0),
             analysis=data.get("analysis"),
             migrated_from=list(data.get("migrated_from") or []),
+            dismissed={str(k): str(v) for k, v in (data.get("dismissed") or {}).items()},
+            db_samples=[list(x) for x in data.get("db_samples") or [] if len(x) == 3],
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -71,11 +90,16 @@ class ManagerData:
             "retention": self.retention,
             "excluded": self.excluded,
             "excluded_written": self.excluded_written,
+            "filters": self.filters,
+            "settings": self.settings,
+            "package_written": self.package_written,
             "samples": self.samples,
             "history": self.history,
             "freed_total": self.freed_total,
             "analysis": self.analysis,
             "migrated_from": self.migrated_from,
+            "dismissed": self.dismissed,
+            "db_samples": self.db_samples,
         }
 
 
@@ -108,6 +132,14 @@ class ManagerStore:
         cutoff = now - SAMPLE_MAX_AGE_DAYS * 86400
         self.data.samples = [s for s in self.data.samples if s[0] >= cutoff]
         self.data.samples.append([now, float(used), float(total)])
+        self.schedule_save()
+
+    def add_db_sample(self, file_bytes: int | None, data_bytes: int | None) -> None:
+        """Remember the database size after an analysis (90 days)."""
+        now = dt_util.utcnow().timestamp()
+        cutoff = now - DB_SAMPLE_MAX_AGE_DAYS * 86400
+        self.data.db_samples = [s for s in self.data.db_samples if s[0] >= cutoff]
+        self.data.db_samples.append([now, float(file_bytes or 0), float(data_bytes or 0)])
         self.schedule_save()
 
     def log(self, action: str, freed: int, details: dict[str, Any] | None = None) -> None:

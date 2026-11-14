@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from fnmatch import fnmatch
 import logging
 import time
 from typing import Any
@@ -31,8 +32,9 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from . import advisor, database, disk, files, recorder_config
 from . import backups as backup_mod
-from . import database, disk, files, recorder_config
+from . import usage as usage_mod
 from .const import (
     ALL_TIERS,
     CONF_BACKUP_ROTATION,
@@ -57,9 +59,18 @@ BREAKDOWN_MAX_AGE = 3600
 FILES_MAX_AGE = 6 * 3600
 BACKUPS_MAX_AGE = 3600
 ANALYSIS_MAX_AGE = 26 * 3600
+USAGE_MAX_AGE = 600
 
 SAFE_CLEAN_TARGETS = ("backups", "files")
-ALL_CLEAN_TARGETS = ("backups", "files", "orphans", "statistics", "repack", "docker")
+ALL_CLEAN_TARGETS = (
+    "backups",
+    "files",
+    "orphans",
+    "statistics",
+    "purge",
+    "repack",
+    "docker",
+)
 
 
 class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -84,9 +95,14 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_sample = 0.0
         self.packages = recorder_config.PackagesInfo(mode=None, directory=None, file=None)
         self.excluded_at_start: list[str] = []
+        self.package_at_start: dict[str, Any] = {}
+        self.locked_settings: dict[str, Any] = {}
         self.yaml_filters: dict[str, Any] = {}
         self.analysis_running = False
         self.busy: str | None = None
+        self._usage: dict[str, usage_mod.EntityUsage] = {}
+        self._usage_at = 0.0
+        self._last_advice: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # setup
@@ -101,13 +117,25 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_prepare(self) -> None:
         """One-time preparation before the first refresh."""
         await self.async_detect_packages()
-        self.excluded_at_start = await self.hass.async_add_executor_job(
+        hass = self.hass
+        self.package_at_start = await hass.async_add_executor_job(
             recorder_config.read_package, self.packages
         )
-        if not self.store.data.excluded_written and self.excluded_at_start:
-            # package file exists but store was lost: adopt the file
-            self.store.data.excluded = list(self.excluded_at_start)
-            self.store.data.excluded_written = list(self.excluded_at_start)
+        self.excluded_at_start = recorder_config.block_entities(self.package_at_start)
+        self.locked_settings = await hass.async_add_executor_job(
+            recorder_config.user_locked_settings, hass.config.config_dir
+        )
+        data = self.store.data
+        if not data.package_written and data.excluded_written:
+            # stored by 0.1.x: only entities were managed
+            data.package_written = recorder_config.build_block(data.excluded_written, {}, {})
+        if not data.package_written and self.package_at_start:
+            # package file exists but the store was lost: adopt the file
+            data.excluded = recorder_config.block_entities(self.package_at_start)
+            data.filters = recorder_config.block_filters(self.package_at_start)
+            data.settings = recorder_config.block_settings(self.package_at_start)
+            data.package_written = dict(self.package_at_start)
+        data.excluded_written = recorder_config.block_entities(data.package_written)
         self.yaml_filters = recorder_config.summarize_filters(
             await recorder_config.async_yaml_recorder_config(self.hass)
         )
@@ -195,6 +223,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "orphan_entities": len(orphans["entities"]),
                 "orphan_entity_bytes": orphans["entity_bytes"],
                 "orphan_statistics": len(orphans["statistics"]),
+                "obsolete": (analysis or {}).get("obsolete"),
             },
             "backups": {
                 "available": backup_list is not None,
@@ -243,6 +272,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             result = await database.async_analyze(self.hass)
             self.store.data.analysis = result
+            file_bytes = await database.async_database_size(self.hass, result)
+            table_sizes = result.get("table_sizes") or {}
+            self.store.add_db_sample(
+                file_bytes, int(sum(table_sizes.values())) if table_sizes else file_bytes
+            )
+            self._usage_at = 0.0
             self.store.schedule_save()
             return result
         finally:
@@ -253,22 +288,119 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # recorder: retention tiers and exclusions
     # ------------------------------------------------------------------
 
-    def recorder_status(self) -> dict[str, Any]:
-        """Status of tiers/exclusions incl. pending restart."""
+    def desired_block(self) -> dict[str, Any]:
+        """The recorder block the package file should contain."""
         data = self.store.data
-        pending = sorted(set(data.excluded_written) ^ set(self.excluded_at_start))
-        unwritten = sorted(set(data.excluded) ^ set(data.excluded_written))
+        return recorder_config.build_block(data.excluded, data.filters, data.settings)
+
+    def recorder_status(self) -> dict[str, Any]:
+        """Status of tiers/exclusions/settings incl. pending restart."""
+        data = self.store.data
+        written = recorder_config.block_items(data.package_written)
+        at_start = recorder_config.block_items(self.package_at_start)
+        desired = recorder_config.block_items(self.desired_block())
+        instance = get_instance(self.hass)
         return {
             "packages": self.packages.as_dict(),
             "excluded_count": len(data.excluded),
             "retention_count": len(data.retention),
-            "restart_required": bool(pending),
-            "pending_restart": pending,
-            "unwritten": unwritten,
+            "restart_required": written != at_start,
+            "pending_restart": sorted(written ^ at_start),
+            "unwritten": sorted(desired ^ written),
             "yaml_filters": self.yaml_filters,
-            "keep_days": get_instance(self.hass).keep_days,
-            "tiers": {k: v for k, v in RETENTION_TIERS.items()},
+            "keep_days": instance.keep_days,
+            "tiers": dict(RETENTION_TIERS),
+            "filters": {k: data.filters.get(k, []) for k in recorder_config.FILTER_KEYS},
+            "exclusion_orphans": self.exclusion_orphans(),
+            "settings": data.settings,
+            "locked_settings": self.locked_settings,
+            "effective_settings": {
+                "purge_keep_days": instance.keep_days,
+                "commit_interval": instance.commit_interval,
+                "auto_purge": instance.auto_purge,
+                "auto_repack": instance.auto_repack,
+            },
         }
+
+    async def _async_sync_package(self) -> bool:
+        """Write the package file if it differs. False when packages are missing."""
+        data = self.store.data
+        desired = self.desired_block()
+        if (
+            recorder_config.block_items(desired)
+            == recorder_config.block_items(data.package_written)
+            and desired == data.package_written
+        ):
+            return True
+        if not self.packages.available:
+            return False
+        await self.hass.async_add_executor_job(
+            recorder_config.write_package, self.packages, desired
+        )
+        data.package_written = desired
+        data.excluded_written = list(data.excluded)
+        self.store.schedule_save()
+        return True
+
+    async def async_apply_settings(
+        self,
+        *,
+        filters: dict[str, list[str]] | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Change exclusion filters and/or global recorder settings."""
+        data = self.store.data
+        if filters is not None:
+            unknown = set(filters) - set(recorder_config.FILTER_KEYS)
+            if unknown:
+                raise HomeAssistantError(f"Unknown filter {', '.join(sorted(unknown))}")
+            data.filters = {
+                key: sorted({str(v).strip() for v in values if str(v).strip()})
+                for key, values in filters.items()
+            }
+        if settings is not None:
+            try:
+                data.settings = recorder_config.validate_settings(
+                    settings, set(self.locked_settings)
+                )
+            except ValueError as err:
+                raise HomeAssistantError(str(err)) from err
+        self.store.schedule_save()
+        written = await self._async_sync_package()
+        self.store.log("recorder_changes", 0, {"settings": True})
+        await self.async_refresh()
+        status = self.recorder_status()
+        return {
+            "packages_missing": not written,
+            "restart_required": status["restart_required"],
+            "status": status,
+        }
+
+    def exclusion_orphans(self) -> dict[str, list[str]]:
+        """Our exclusions that match nothing that exists any more."""
+        known = self._known_entities()
+        data = self.store.data
+        domains = {e.split(".", 1)[0] for e in known}
+        globs = [
+            g for g in data.filters.get("entity_globs", []) if not any(fnmatch(e, g) for e in known)
+        ]
+        return {
+            "entities": sorted(e for e in data.excluded if e not in known),
+            "domains": sorted(d for d in data.filters.get("domains", []) if d not in domains),
+            "entity_globs": sorted(globs),
+        }
+
+    async def async_remove_exclusion_orphans(self) -> dict[str, Any]:
+        """Drop exclusions that match nothing."""
+        orphans = self.exclusion_orphans()
+        data = self.store.data
+        data.excluded = [e for e in data.excluded if e not in orphans["entities"]]
+        for key in ("domains", "entity_globs"):
+            data.filters[key] = [v for v in data.filters.get(key, []) if v not in orphans[key]]
+        self.store.schedule_save()
+        written = await self._async_sync_package()
+        await self.async_refresh()
+        return {"removed": sum(map(len, orphans.values())), "packages_missing": not written}
 
     async def async_apply_recorder_changes(
         self,
@@ -295,24 +427,16 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 new_excluded.add(entity_id)
             else:
                 new_excluded.discard(entity_id)
-        excluded_changed = new_excluded != set(data.excluded)
         data.excluded = sorted(new_excluded)
         self.store.schedule_save()
 
         result: dict[str, Any] = {"restart_required": False, "packages_missing": False}
-        if excluded_changed or set(data.excluded) != set(data.excluded_written):
-            if not self.packages.available:
-                result["packages_missing"] = True
-            else:
-                await self.hass.async_add_executor_job(
-                    recorder_config.write_package, self.packages, data.excluded
-                )
-                data.excluded_written = list(data.excluded)
-                self.store.schedule_save()
+        if not await self._async_sync_package():
+            result["packages_missing"] = True
 
+        by_tier: dict[int, list[str]] = {}
         if purge_now:
             newly_excluded = [e for e, f in excluded.items() if f]
-            by_tier: dict[int, list[str]] = {}
             for entity_id, tier in retention.items():
                 if tier in RETENTION_TIERS:
                     by_tier.setdefault(RETENTION_TIERS[tier], []).append(entity_id)
@@ -327,6 +451,14 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     estimate,
                     {"entities": sum(map(len, by_tier.values()))},
                 )
+            if any(by_tier.values()):
+                self._schedule_reanalysis()
+        changed = len(retention) + len(excluded)
+        if changed and not (purge_now and any(by_tier.values())):
+            self.store.log("recorder_changes", 0, {"entities": changed})
+        for entity_id in [*retention, *excluded]:
+            self.store.data.dismissed.pop(entity_id, None)
+        self._usage_at = 0.0
 
         status = self.recorder_status()
         result["restart_required"] = status["restart_required"]
@@ -334,6 +466,16 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.invalidate("files")
         await self.async_refresh()
         return result
+
+    def _schedule_reanalysis(self) -> None:
+        """Measure the effect once the queued purges are done."""
+
+        async def _run() -> None:
+            await database.async_wait_idle(self.hass)
+            if not self.analysis_running:
+                await self.async_run_analysis()
+
+        self.config_entry.async_create_background_task(self.hass, _run(), f"{DOMAIN}_reanalysis")
 
     def _estimate_purge(self, by_tier: dict[int, list[str]]) -> int:
         """Rough bytes freed when purging entities down to keep_days."""
@@ -420,8 +562,90 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # entity table for the panel
     # ------------------------------------------------------------------
 
-    def entity_rows(self) -> dict[str, Any]:
-        """All entities with recording info, sorted by estimated size."""
+    async def async_usage(self, entity_ids: set[str]) -> dict[str, usage_mod.EntityUsage]:
+        """Usage of entities, cached for USAGE_MAX_AGE seconds."""
+        missing = entity_ids - set(self._usage)
+        if missing or time.time() - self._usage_at > USAGE_MAX_AGE:
+            self._usage = await usage_mod.async_collect(self.hass, entity_ids | set(self._usage))
+            self._usage_at = time.time()
+        return self._usage
+
+    def _facts(self, entity_id: str, info: dict[str, Any]) -> advisor.EntityFacts:
+        state = self.hass.states.get(entity_id)
+        entry = er.async_get(self.hass).async_get(entity_id)
+        attrs = state.attributes if state is not None else {}
+        capabilities = (entry.capabilities or {}) if entry else {}
+        data = self.store.data
+        current = (
+            advisor.EXCLUDED
+            if entity_id in data.excluded
+            else data.retention.get(entity_id, TIER_DEFAULT)
+        )
+        category = entry.entity_category if entry else None
+        return advisor.EntityFacts(
+            entity_id=entity_id,
+            rows=int(info.get("rows", 0)),
+            rows_24h=int(info.get("rows_24h", 0)),
+            attr_len=int(info.get("attr_len", 0)),
+            state_len=int(info.get("state_len", 0)),
+            est_state_bytes=int(info.get("est_state_bytes", info.get("est_bytes", 0))),
+            est_bytes=int(info.get("est_bytes", 0)),
+            stat_rows=int(info.get("stat_rows", 0)),
+            est_attr_bytes=int(info.get("est_attr_bytes", 0)),
+            state_class=attrs.get("state_class") or capabilities.get("state_class"),
+            device_class=attrs.get("device_class")
+            or (entry.device_class or entry.original_device_class if entry else None),
+            entity_category=str(category.value if hasattr(category, "value") else category)
+            if category
+            else None,
+            current=current,
+        )
+
+    async def async_advice(self) -> dict[str, dict[str, Any]]:
+        """Recommendation per analysed entity."""
+        analysis = self.store.data.analysis or {}
+        entities: dict[str, dict[str, Any]] = analysis.get("entities") or {}
+        if not entities:
+            return {}
+        known = self._known_entities()
+        candidates = {e for e in entities if e in known}
+        usage = await self.async_usage(candidates)
+        total = int(sum(i.get("est_bytes", 0) for i in entities.values()))
+        keep_days = int(get_instance(self.hass).keep_days)
+        advice: dict[str, dict[str, Any]] = {}
+        for entity_id in candidates:
+            facts = self._facts(entity_id, entities[entity_id])
+            advice[entity_id] = advisor.recommend(
+                facts,
+                usage.get(entity_id),
+                keep_days=keep_days,
+                total_bytes=total,
+                dismissed=self.store.data.dismissed.get(entity_id),
+            )
+            advice[entity_id]["facts"] = {
+                "state_class": facts.state_class,
+                "device_class": facts.device_class,
+                "entity_category": facts.entity_category,
+                "attr_share": round(advisor.attribute_share(facts), 2),
+            }
+            entity_usage = usage.get(entity_id)
+            advice[entity_id]["used"] = (
+                {
+                    "automations": len(entity_usage.automations),
+                    "scripts": len(entity_usage.scripts),
+                    "helpers": len(entity_usage.helpers),
+                    "dashboards": len(entity_usage.dashboards),
+                    "energy": entity_usage.energy,
+                    "min_days": entity_usage.min_days,
+                }
+                if entity_usage
+                else None
+            )
+        self._last_advice = advice
+        return advice
+
+    async def async_entity_rows(self) -> dict[str, Any]:
+        """All entities with recording info and advice, sorted by size."""
         hass = self.hass
         ent_reg = er.async_get(hass)
         dev_reg = dr.async_get(hass)
@@ -429,6 +653,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         analysis = self.store.data.analysis or {}
         stats = analysis.get("entities") or {}
         data = self.store.data
+        advice = await self.async_advice()
+        top = advisor.mark_top({e: int(i.get("est_bytes", 0)) for e, i in stats.items()})
         ids = (
             set(hass.states.async_entity_ids())
             | set(stats)
@@ -470,9 +696,21 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "recorded": recorded,
                     "excluded_by_yaml": (not recorded) and entity_id not in self.excluded_at_start,
                     "orphan": entity_id not in known,
+                    "top": entity_id in top,
+                    "advice": advice.get(entity_id),
                 }
             )
         rows.sort(key=lambda r: (r["est_bytes"], r["rows"]), reverse=True)
+        total = sum(r["est_bytes"] for r in rows) or 0
+        rest = [r for r in rows if not r["top"]]
+        inbox = sorted(
+            (
+                {"entity_id": r["entity_id"], "name": r["name"], **(r["advice"] or {})}
+                for r in rows
+                if r["advice"] and r["advice"].get("action")
+            ),
+            key=lambda a: (not a.get("conflict"), -a["saving"]),
+        )
         return {
             "rows": rows,
             "analysis_at": analysis.get("generated_at"),
@@ -482,7 +720,47 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "keep_days": get_instance(hass).keep_days,
             "packages_available": self.packages.available,
             "yaml_filters": self.yaml_filters,
+            "total_bytes": total,
+            "top_count": len(top),
+            "rest_count": len(rest),
+            "rest_bytes": sum(r["est_bytes"] for r in rest),
+            "inbox": inbox,
+            "inbox_saving": sum(a["saving"] for a in inbox),
+            "dismissed_count": len(data.dismissed),
+            "size_history": data.db_samples,
+            "changes": [
+                h["time"]
+                for h in data.history
+                if h["action"] in ("purge_entities", "recorder_changes")
+            ],
         }
+
+    async def async_entity_detail(self, entity_id: str) -> dict[str, Any]:
+        """Detail sheet data for one entity."""
+        detail = await database.async_entity_detail(self.hass, entity_id)
+        usage = (await self.async_usage({entity_id})).get(entity_id)
+        advice = (await self.async_advice()).get(entity_id)
+        info = ((self.store.data.analysis or {}).get("entities") or {}).get(entity_id, {})
+        return {
+            **detail,
+            "usage": usage.as_dict() if usage else None,
+            "advice": advice,
+            "info": info,
+            "keep_days": get_instance(self.hass).keep_days,
+        }
+
+    def dismiss(self, entity_ids: list[str], undo: bool = False) -> None:
+        """Hide (or show again) recommendations."""
+        dismissed = self.store.data.dismissed
+        if undo:
+            for entity_id in entity_ids or list(dismissed):
+                dismissed.pop(entity_id, None)
+        else:
+            for entity_id in entity_ids:
+                advice = self._last_advice.get(entity_id) or {}
+                if advice.get("action"):
+                    dismissed[entity_id] = str(advice["action"])
+        self.store.schedule_save()
 
     # ------------------------------------------------------------------
     # recommendations
@@ -634,6 +912,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         if "statistics" in targets:
             preview["statistics"] = {"bytes": 0, "items": self.orphans()["statistics"]}
+        if "purge" in targets:
+            obsolete = (self.store.data.analysis or {}).get("obsolete") or {}
+            preview["purge"] = {
+                "bytes": int(obsolete.get("bytes") or 0),
+                "rows": int(obsolete.get("states") or 0) + int(obsolete.get("events") or 0),
+            }
         if "repack" in targets:
             preview["repack"] = {
                 "bytes": data["reclaimable"]["repack"],
@@ -715,6 +999,20 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     analysis = self.store.data.analysis or {}
                     for sid in ids:
                         (analysis.get("statistics") or {}).pop(sid, None)
+                if "purge" in targets:
+                    self._set_busy("purge")
+                    obsolete = (self.store.data.analysis or {}).get("obsolete") or {}
+                    await database.async_purge(self.hass)
+                    await database.async_wait_idle(self.hass)
+                    results["purge"] = int(obsolete.get("bytes") or 0)
+                    if self.store.data.analysis is not None:
+                        self.store.data.analysis["obsolete"] = {
+                            **obsolete,
+                            "states": 0,
+                            "events": 0,
+                            "bytes": 0,
+                        }
+                    self._schedule_reanalysis()
                 if "repack" in targets:
                     if not self.repack_possible():
                         errors.append("not enough free space for repack")

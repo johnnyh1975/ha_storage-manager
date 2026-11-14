@@ -32,7 +32,7 @@ PACKAGES_RE = re.compile(
 HOMEASSISTANT_RE = re.compile(r"^homeassistant\s*:", re.MULTILINE)
 HEADER = (
     "# Managed by Storage Manager - do not edit, changes are overwritten.\n"
-    "# Entities listed here are not written to the recorder database.\n"
+    "# Recorder exclusions and settings chosen in the Storage Manager panel.\n"
 )
 
 
@@ -81,44 +81,153 @@ def packages_snippet() -> str:
     return "homeassistant:\n  packages: !include_dir_named packages\n"
 
 
-def render_package(entities: list[str], mode: str | None) -> str:
+FILTER_KEYS = ("domains", "entity_globs", "event_types")
+# managed global settings: key -> (type, min, max)
+SETTING_KEYS: dict[str, tuple[type, int, int]] = {
+    "purge_keep_days": (int, 1, 3650),
+    "commit_interval": (int, 0, 30),
+    "auto_purge": (bool, 0, 1),
+    "auto_repack": (bool, 0, 1),
+}
+
+
+def build_block(
+    entities: list[str], filters: dict[str, list[str]], settings: dict[str, Any]
+) -> dict[str, Any]:
+    """The recorder block Storage Manager contributes (empty dict = nothing)."""
+    block: dict[str, Any] = {}
+    exclude: dict[str, list[str]] = {}
+    if entities:
+        exclude["entities"] = sorted(set(entities))
+    for key in FILTER_KEYS:
+        values = sorted({str(v) for v in filters.get(key) or [] if str(v).strip()})
+        if values:
+            exclude[key] = values
+    if exclude:
+        block["exclude"] = exclude
+    for key in SETTING_KEYS:
+        if key in settings and settings[key] is not None:
+            block[key] = settings[key]
+    return block
+
+
+def block_items(block: dict[str, Any]) -> set[str]:
+    """Flat, comparable representation of a block (for change detection)."""
+    items: set[str] = set()
+    for key, values in (block.get("exclude") or {}).items():
+        for value in values or []:
+            items.add(value if key == "entities" else f"{key}:{value}")
+    for key in SETTING_KEYS:
+        if key in block:
+            items.add(f"{key}={block[key]}")
+    return items
+
+
+def render_package(block: dict[str, Any], mode: str | None) -> str:
     """YAML content of the managed package file."""
-    recorder: dict[str, Any] = {"recorder": {"exclude": {"entities": sorted(entities)}}}
-    if not entities:
-        recorder = {}
-    body: dict[str, Any] = recorder
-    if mode == "include_dir_merge_named":
-        body = {PACKAGE_NAME: recorder} if recorder else {}
+    body: dict[str, Any] = {"recorder": block} if block else {}
+    if mode == "include_dir_merge_named" and body:
+        body = {PACKAGE_NAME: body}
     text = yaml.safe_dump(body, sort_keys=True, allow_unicode=True) if body else "{}\n"
     return HEADER + text
 
 
-def write_package(info: PackagesInfo, entities: list[str]) -> None:
+def write_package(info: PackagesInfo, block: dict[str, Any]) -> None:
     """Write (or remove) the managed package file (blocking)."""
     if info.file is None or info.directory is None:
         raise FileNotFoundError("Packages directory not configured")
-    if not entities:
+    if not block:
         if info.file.exists():
             info.file.unlink()
         return
     info.directory.mkdir(parents=True, exist_ok=True)
     tmp = info.file.with_suffix(".tmp")
-    tmp.write_text(render_package(entities, info.mode), encoding="utf-8")
+    tmp.write_text(render_package(block, info.mode), encoding="utf-8")
     tmp.replace(info.file)
 
 
-def read_package(info: PackagesInfo) -> list[str]:
-    """Entities currently in the managed package file (blocking)."""
+def read_package(info: PackagesInfo) -> dict[str, Any]:
+    """The recorder block currently in the managed package file (blocking)."""
     if info.file is None or not info.file.exists():
-        return []
+        return {}
     try:
         data = yaml.safe_load(info.file.read_text(encoding="utf-8")) or {}
     except OSError, yaml.YAMLError:
-        return []
+        return {}
     if PACKAGE_NAME in data:
         data = data[PACKAGE_NAME] or {}
-    entities = ((data.get("recorder") or {}).get("exclude") or {}).get("entities") or []
-    return sorted({str(e) for e in entities})
+    recorder = data.get("recorder") or {}
+    return recorder if isinstance(recorder, dict) else {}
+
+
+def block_entities(block: dict[str, Any]) -> list[str]:
+    """Excluded entity ids of a block."""
+    return sorted({str(e) for e in (block.get("exclude") or {}).get("entities") or []})
+
+
+def block_filters(block: dict[str, Any]) -> dict[str, list[str]]:
+    """Excluded domains, globs and event types of a block."""
+    exclude = block.get("exclude") or {}
+    return {key: sorted({str(v) for v in exclude.get(key) or []}) for key in FILTER_KEYS}
+
+
+def block_settings(block: dict[str, Any]) -> dict[str, Any]:
+    """Global settings of a block."""
+    return {key: block[key] for key in SETTING_KEYS if key in block}
+
+
+def validate_settings(settings: dict[str, Any], locked: set[str]) -> dict[str, Any]:
+    """Check types and ranges; refuse keys the user sets in YAML."""
+    clean: dict[str, Any] = {}
+    for key, value in settings.items():
+        if key not in SETTING_KEYS:
+            raise ValueError(f"unknown setting {key}")
+        if key in locked:
+            raise ValueError(f"{key} is set in your own YAML configuration")
+        if value is None:
+            continue
+        kind, low, high = SETTING_KEYS[key]
+        if kind is bool:
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} must be true or false")
+            clean[key] = value
+            continue
+        if isinstance(value, bool) or not isinstance(value, int | float) or int(value) != value:
+            raise ValueError(f"{key} must be a whole number")
+        if not low <= int(value) <= high:
+            raise ValueError(f"{key} must be between {low} and {high}")
+        clean[key] = int(value)
+    return clean
+
+
+def user_locked_settings(config_dir: str) -> dict[str, Any]:
+    """Recorder settings the user defines in YAML outside our package (blocking).
+
+    These must not be written by Storage Manager: a duplicate key makes Home
+    Assistant reject the whole package.
+    """
+    try:
+        from homeassistant.util.yaml import Secrets, load_yaml_dict  # noqa: PLC0415
+
+        config = load_yaml_dict(Path(config_dir) / "configuration.yaml", Secrets(Path(config_dir)))
+    except Exception as err:  # noqa: BLE001 - broken YAML: lock nothing, HA will complain
+        _LOGGER.debug("Could not read configuration.yaml: %s", err)
+        return {}
+    blocks: list[Any] = [config.get("recorder")]
+    packages = (config.get("homeassistant") or {}).get("packages") or {}
+    if isinstance(packages, dict):
+        blocks += [
+            (pkg or {}).get("recorder")
+            for name, pkg in packages.items()
+            if name != PACKAGE_NAME and isinstance(pkg, dict)
+        ]
+    locked: dict[str, Any] = {}
+    for block in blocks:
+        if isinstance(block, dict):
+            for key in SETTING_KEYS:
+                if key in block:
+                    locked[key] = block[key]
+    return locked
 
 
 def is_recorded(hass: HomeAssistant, entity_id: str) -> bool:

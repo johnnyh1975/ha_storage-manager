@@ -83,7 +83,26 @@ async def _overview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg
 
 
 async def _entities(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
-    return c.entity_rows()
+    return await c.async_entity_rows()
+
+
+async def _entity_detail(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_entity_detail(msg["entity_id"])
+
+
+async def _settings(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_apply_settings(filters=msg.get("filters"), settings=msg.get("settings"))
+
+
+async def _remove_exclusion_orphans(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_remove_exclusion_orphans()
+
+
+async def _dismiss(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    if not msg.get("undo"):
+        await c.async_advice()
+    c.dismiss(msg.get("entity_ids") or [], undo=msg.get("undo", False))
+    return {"dismissed": len(c.store.data.dismissed)}
 
 
 async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -183,6 +202,34 @@ def async_setup(hass: HomeAssistant) -> None:
         _apply,
     )
     _register(hass, {"type": f"{DOMAIN}/analyze"}, _analyze)
+    _register(
+        hass,
+        {"type": f"{DOMAIN}/entity_detail", vol.Required("entity_id"): ENTITY_ID},
+        _entity_detail,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/settings",
+            vol.Optional("filters"): {
+                vol.In(["domains", "entity_globs", "event_types"]): [
+                    vol.All(str, vol.Length(min=1, max=255))
+                ]
+            },
+            vol.Optional("settings"): {str: vol.Any(None, bool, int, float)},
+        },
+        _settings,
+    )
+    _register(hass, {"type": f"{DOMAIN}/remove_exclusion_orphans"}, _remove_exclusion_orphans)
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/dismiss",
+            vol.Optional("entity_ids"): [ENTITY_ID],
+            vol.Optional("undo", default=False): bool,
+        },
+        _dismiss,
+    )
     _register(
         hass,
         {"type": f"{DOMAIN}/preview", vol.Required("targets"): [vol.In(ALL_CLEAN_TARGETS)]},
