@@ -74,9 +74,25 @@ ALL_CLEAN_TARGETS = (
     "purge",
     "repack",
     "docker",
+    "unused_statistics",
+    "events",
 )
 # targets that delete rows from the database and run the safety chain first
-DB_DELETE_TARGETS = ("orphans", "statistics", "purge")
+DB_DELETE_TARGETS = ("orphans", "statistics", "unused_statistics", "events", "purge")
+STALE_IMPORT_DAYS = 90  # imported statistics without a new row for this long
+# event types the logbook shows: deleting them removes logbook entries
+LOGBOOK_EVENT_TYPES = frozenset(
+    {
+        "automation_triggered",
+        "script_started",
+        "logbook_entry",
+        "call_service",
+        "homeassistant_start",
+        "homeassistant_stop",
+    }
+)
+SYSTEM_LOG_EVENT = "system_log_event"
+SYSTEM_LOG_MIN_ROWS = 10000
 
 
 INBOX_GROUP_MIN = 4  # from this many entities with the same rule, one inbox line
@@ -171,6 +187,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._kinds: list[dict[str, Any]] = []
         self._potential: dict[str, int] | None = None
         self._potential_key: tuple[Any, ...] | None = None
+        self._unused: dict[str, int] | None = None
+        self._unused_key: tuple[Any, ...] | None = None
         self._analysis_control: database.AnalysisControl | None = None
         self.analysis_progress: dict[str, Any] | None = None
         self._progress_sent = 0.0
@@ -331,6 +349,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ),
             },
             "heavy_writers": self.store.data.heavy_writers,
+            "unused_statistics": await self._async_unused_summary(),
+            "system_log": self.system_log_events(),
             "freed_total": self.store.data.freed_total,
             "busy": self.busy,
         }
@@ -424,7 +444,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def desired_block(self) -> dict[str, Any]:
         """The recorder block the package file should contain."""
         data = self.store.data
-        return recorder_config.build_block(data.excluded, data.filters, data.settings)
+        return recorder_config.build_block(
+            data.excluded, data.filters, data.settings, data.stats_off
+        )
 
     def recorder_status(self) -> dict[str, Any]:
         """Status of tiers/exclusions/settings incl. pending restart."""
@@ -685,6 +707,131 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await database.async_purge_entities(self.hass, entity_ids, keep_days)
 
     # ------------------------------------------------------------------
+    # statistics nobody needs
+    # ------------------------------------------------------------------
+
+    async def async_unused_statistics(self) -> dict[str, Any]:
+        """Long-term statistics that only cost space.
+
+        - diagnostic and time sensors that still compile statistics, unless an
+          energy dashboard or statistics card shows them: switched off by
+          removing their state_class, then cleared
+        - statistics of disabled entities: nothing adds to them any more
+        - imported statistics without a new row for STALE_IMPORT_DAYS
+        Statistics of deleted entities are the "statistics" target.
+        """
+        data = self.store.data
+        analysis = data.analysis or {}
+        stats: dict[str, dict[str, Any]] = analysis.get("statistics") or {}
+        entities: dict[str, dict[str, Any]] = analysis.get("entities") or {}
+        ent_reg = er.async_get(self.hass)
+        now = time.time()
+        off = set(data.stats_off)
+        found: list[dict[str, Any]] = []
+        candidates: dict[str, dict[str, Any]] = {}
+        for sid, info in stats.items():
+            item = {
+                "statistic_id": sid,
+                "bytes": int(info.get("est_bytes") or 0),
+                "rows": int(info.get("rows") or 0),
+                "last": info.get("last"),
+            }
+            if info.get("source") != "recorder":
+                last = info.get("last")
+                if last is not None and now - float(last) > STALE_IMPORT_DAYS * 86400:
+                    found.append({**item, "kind": "stale_import", "source": info.get("source")})
+                continue
+            if sid in off:
+                continue
+            entry = ent_reg.async_get(sid)
+            if entry is not None and entry.disabled_by is not None:
+                found.append({**item, "kind": "disabled"})
+                continue
+            if self.hass.states.get(sid) is None or sid not in entities:
+                continue
+            kind = advisor.statistics_noise(self._facts(sid, entities[sid]))
+            if kind is not None:
+                candidates[sid] = {**item, "kind": kind}
+        if candidates:
+            usage = await self.async_usage(set(candidates))
+            found.extend(
+                item
+                for sid, item in candidates.items()
+                if not (usage.get(sid) and usage[sid].needs_statistics)
+            )
+        for item in found:
+            state = self.hass.states.get(item["statistic_id"])
+            item["name"] = (state.name if state else None) or item["statistic_id"]
+        found.sort(key=lambda i: i["bytes"], reverse=True)
+        return {
+            "items": found,
+            "bytes": sum(i["bytes"] for i in found),
+            "off": sorted(off),
+            "packages": self.packages.available,
+        }
+
+    async def async_sweep_statistics_off(self) -> list[str]:
+        """Clear what was compiled before the state_class removal took effect.
+
+        Until Home Assistant restarts with the customize entry, the sensor keeps
+        compiling hourly rows. Once its state has no state_class any more,
+        whatever is left is cleared.
+        """
+        ids = [
+            entity_id
+            for entity_id in self.store.data.stats_off
+            if (state := self.hass.states.get(entity_id)) is not None
+            and state.attributes.get("state_class") is None
+        ]
+        if ids:
+            await database.async_clear_statistics(self.hass, ids)
+        return ids
+
+    async def async_statistics_on(self, entity_ids: list[str]) -> dict[str, Any]:
+        """Undo switching statistics off (takes effect after a restart)."""
+        data = self.store.data
+        data.stats_off = sorted(set(data.stats_off) - set(entity_ids))
+        self.store.schedule_save()
+        written = await self._async_sync_package()
+        self.store.log("statistics_on", 0, {"entities": len(entity_ids)})
+        await self.async_refresh()
+        return {
+            "stats_off": data.stats_off,
+            "packages_missing": not written,
+            "restart_required": self.recorder_status()["restart_required"],
+        }
+
+    def events_overview(self) -> list[dict[str, Any]]:
+        """Recorded event types with what deleting them would mean."""
+        events = (self.store.data.analysis or {}).get("events") or []
+        excluded = set(self.store.data.filters.get("event_types", []))
+        excluded |= set(((self.yaml_filters or {}).get("exclude") or {}).get("event_types", []))
+        return [
+            {
+                **event,
+                "excluded": event["event_type"] in excluded,
+                "logbook": event["event_type"] in LOGBOOK_EVENT_TYPES,
+                "deletable": event["event_type"] not in database.PROTECTED_EVENT_TYPES,
+            }
+            for event in events
+        ]
+
+    def system_log_events(self) -> dict[str, Any] | None:
+        """system_log_event rows pile up when system_log fires an event per log entry."""
+        handler = self.hass.data.get("system_log")
+        fire_event = bool(getattr(handler, "fire_event", False))
+        events = (self.store.data.analysis or {}).get("events") or []
+        row = next((e for e in events if e["event_type"] == SYSTEM_LOG_EVENT), None)
+        rows = int(row["rows"]) if row else 0
+        if not fire_event and rows < SYSTEM_LOG_MIN_ROWS:
+            return None
+        return {
+            "fire_event": fire_event,
+            "rows": rows,
+            "bytes": int(row.get("est_bytes") or 0) if row else 0,
+        }
+
+    # ------------------------------------------------------------------
     # orphans
     # ------------------------------------------------------------------
 
@@ -821,6 +968,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "dashboards": len(entity_usage.dashboards),
                     "energy": entity_usage.energy,
                     "min_days": entity_usage.min_days,
+                    "yaml": len(entity_usage.yaml),
+                    "statistics_cards": len(entity_usage.statistics_cards),
+                    "dynamic": len(entity_usage.dynamic),
                 }
                 if entity_usage
                 else None
@@ -909,6 +1059,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "inbox": inbox,
             "inbox_saving": sum(a["saving"] for a in inbox),
             "kinds": self._kinds,
+            "event_types": self.events_overview(),
             "dismissed_count": len(data.dismissed),
             "size_history": data.db_samples,
             "changes": [
@@ -1080,6 +1231,32 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         return applied
 
+    async def _async_unused_summary(self) -> dict[str, int] | None:
+        """Count and size of unused statistics for the overview (cached)."""
+        analysis = self.store.data.analysis
+        if not analysis or not analysis.get("statistics"):
+            return None
+        key = (
+            analysis.get("generated_at"),
+            len(analysis.get("statistics") or {}),
+            tuple(self.store.data.stats_off),
+            int(time.time() // USAGE_MAX_AGE),
+        )
+        if key != self._unused_key:
+            try:
+                unused = await self.async_unused_statistics()
+            except Exception:  # noqa: BLE001 - the overview must not fail on it
+                _LOGGER.debug("Unused statistics not available", exc_info=True)
+                return None
+            items = [
+                i
+                for i in unused["items"]
+                if unused["packages"] or i["kind"] not in ("noise", "time")
+            ]
+            self._unused = {"count": len(items), "bytes": sum(i["bytes"] for i in items)}
+            self._unused_key = key
+        return self._unused
+
     def set_kind_auto(self, auto: dict[str, bool]) -> dict[str, str]:
         """Switch automatic rules for new sensors per kind on or off."""
         current = dict(self.store.data.kind_auto)
@@ -1229,6 +1406,28 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "view": "database",
                 }
             )
+        unused = self.data.get("unused_statistics")
+        if unused and unused["bytes"] >= 1024 * 1024:
+            recs.append(
+                {
+                    "id": "unused_statistics",
+                    "bytes": unused["bytes"],
+                    "count": unused["count"],
+                    "action": "navigate",
+                    "view": "database",
+                }
+            )
+        system_log = self.data.get("system_log")
+        if system_log:
+            recs.append(
+                {
+                    "id": "system_log_events" if system_log["fire_event"] else "system_log_rows",
+                    "bytes": system_log["bytes"],
+                    "count": system_log["rows"],
+                    "action": "navigate",
+                    "view": "database",
+                }
+            )
         debug = (self.data.get("logging") or {}).get("debug") or []
         log_bytes = int((self.data.get("logging") or {}).get("log_bytes") or 0)
         if debug:
@@ -1272,11 +1471,31 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # cleanup
     # ------------------------------------------------------------------
 
-    async def async_preview(self, targets: list[str]) -> dict[str, Any]:
+    async def async_preview(
+        self,
+        targets: list[str],
+        *,
+        statistic_ids: list[str] | None = None,
+        event_types: list[str] | None = None,
+    ) -> dict[str, Any]:
         """What a cleanup would do, without doing it."""
         await self.async_refresh()
         data = self.data
         preview: dict[str, Any] = {}
+        if "unused_statistics" in targets:
+            items = await self._unused_selection(statistic_ids)
+            preview["unused_statistics"] = {
+                "bytes": sum(i["bytes"] for i in items),
+                "items": items,
+                "switch_off": sum(1 for i in items if i["kind"] in ("noise", "time")),
+            }
+        if "events" in targets:
+            items = self._events_selection(event_types)
+            preview["events"] = {
+                "bytes": sum(int(i.get("est_bytes") or 0) for i in items),
+                "rows": sum(int(i["rows"]) for i in items),
+                "items": items,
+            }
         if "backups" in targets:
             plan = [p for p in self.backup_plan() if p["action"] == "delete_local"]
             preview["backups"] = {
@@ -1323,6 +1542,25 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 backup_needed=_needs_backup(db_targets),
             )
         return preview
+
+    async def _unused_selection(self, statistic_ids: list[str] | None) -> list[dict[str, Any]]:
+        """Unused statistics, limited to the given ids when there are any."""
+        items: list[dict[str, Any]] = (await self.async_unused_statistics())["items"]
+        if statistic_ids:
+            wanted = set(statistic_ids)
+            items = [i for i in items if i["statistic_id"] in wanted]
+        if not self.packages.available:
+            # without the package file they would just be compiled again
+            items = [i for i in items if i["kind"] not in ("noise", "time")]
+        return items
+
+    def _events_selection(self, event_types: list[str] | None) -> list[dict[str, Any]]:
+        """Event types to delete: the given ones, else every excluded type."""
+        events = [e for e in self.events_overview() if e["deletable"]]
+        if event_types:
+            wanted = set(event_types)
+            return [e for e in events if e["event_type"] in wanted]
+        return [e for e in events if e["excluded"]]
 
     def _live_bytes(self) -> int:
         """Data in the database file (without free pages) as far as known."""
@@ -1468,6 +1706,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         skip_backup: bool = False,
         repack_method: str | None = None,
         convert: bool = True,
+        event_types: list[str] | None = None,
     ) -> dict[str, Any]:
         """Execute cleanup targets. Returns freed bytes per target.
 
@@ -1493,9 +1732,19 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if db_targets or "repack" in targets:
                     try:
                         if db_targets:
+                            estimate = self._delete_estimate(db_targets)
+                            if "unused_statistics" in db_targets:
+                                estimate += sum(
+                                    i["bytes"] for i in await self._unused_selection(statistic_ids)
+                                )
+                            if "events" in db_targets:
+                                estimate += sum(
+                                    int(e.get("est_bytes") or 0)
+                                    for e in self._events_selection(event_types)
+                                )
                             safety_result = await self._async_safety(
                                 skip_backup=skip_backup,
-                                delete_bytes=self._delete_estimate(db_targets),
+                                delete_bytes=estimate,
                                 backup_needed=_needs_backup(db_targets),
                             )
                         else:
@@ -1504,8 +1753,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         blocked = {"reason": err.reason, "detail": err.detail}
                 if blocked is None:
                     await self._clean_database(
-                        db_targets, entity_ids, statistic_ids, results, deleted
+                        db_targets, entity_ids, statistic_ids, results, deleted, errors
                     )
+                    if "unused_statistics" in db_targets:
+                        await self._clean_unused_statistics(statistic_ids, results, deleted, errors)
+                    if "events" in db_targets:
+                        await self._clean_events(event_types, results, deleted)
                     if "repack" in targets:
                         await self._clean_repack(repack_method, convert, results, errors)
             finally:
@@ -1602,13 +1855,13 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         statistic_ids: list[str] | None,
         results: dict[str, Any],
         deleted: dict[str, Any],
+        errors: list[str],
     ) -> None:
         if "orphans" in db_targets:
             self._set_busy("orphans")
             orphans = self.orphans()
             ids = entity_ids or orphans["entities"]
             await database.async_purge_entities(self.hass, ids, 0)
-            await database.async_wait_idle(self.hass)
             results["orphans"] = orphans["entity_bytes"] if not entity_ids else 0
             deleted["entities"] = ids[:LOG_IDS_MAX]
             self._drop_from_analysis(ids)
@@ -1636,6 +1889,52 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "bytes": 0,
                 }
             self._schedule_reanalysis()
+
+    async def _clean_unused_statistics(
+        self,
+        statistic_ids: list[str] | None,
+        results: dict[str, Any],
+        deleted: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        self._set_busy("unused_statistics")
+        items = await self._unused_selection(statistic_ids)
+        switch_off = [i["statistic_id"] for i in items if i["kind"] in ("noise", "time")]
+        if switch_off:
+            data = self.store.data
+            data.stats_off = sorted({*data.stats_off, *switch_off})
+            self.store.schedule_save()
+            if not await self._async_sync_package():  # pragma: no cover - checked above
+                errors.append("packages_missing")
+        ids = [i["statistic_id"] for i in items]
+        await database.async_clear_statistics(self.hass, ids)
+        await database.async_wait_idle(self.hass)
+        results["unused_statistics"] = sum(i["bytes"] for i in items)
+        deleted["unused_statistics"] = ids[:LOG_IDS_MAX]
+        if switch_off:
+            deleted["statistics_off"] = switch_off[:LOG_IDS_MAX]
+        stats = (self.store.data.analysis or {}).get("statistics") or {}
+        for sid in ids:
+            stats.pop(sid, None)
+
+    async def _clean_events(
+        self,
+        event_types: list[str] | None,
+        results: dict[str, Any],
+        deleted: dict[str, Any],
+    ) -> None:
+        self._set_busy("events")
+        items = self._events_selection(event_types)
+        types = [e["event_type"] for e in items]
+        rows = await database.async_delete_events(self.hass, types)
+        results["events"] = sum(int(e.get("est_bytes") or 0) for e in items) if rows else 0
+        deleted["event_types"] = types
+        deleted["event_rows"] = rows
+        analysis = self.store.data.analysis
+        if analysis is not None:
+            analysis["events"] = [
+                e for e in analysis.get("events") or [] if e["event_type"] not in set(types)
+            ]
 
     async def _clean_repack(
         self,

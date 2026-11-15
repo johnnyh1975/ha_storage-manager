@@ -22,7 +22,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.recorder import get_instance, session_scope
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ Q_LOOSE_ATTRS_CHUNK = text(
 )
 
 Q_STATS_CHUNK = (
-    "SELECT metadata_id, COUNT(*) FROM {table} "  # noqa: S608 - table from a constant list
+    "SELECT metadata_id, COUNT(*), MAX(start_ts) FROM {table} "  # noqa: S608 - constant table
     "WHERE id >= :lo AND id < :hi GROUP BY metadata_id"
 )
 
@@ -319,13 +319,16 @@ def _analyze(
         attr_totals["loose_len"] += int(loose_len or 0)
 
     stat_rows: dict[int, int] = {}
+    stat_last: dict[int, float] = {}
 
     def stats_chunk(table: str) -> Callable[[Session, int, int], None]:
         query = text(Q_STATS_CHUNK.format(table=table))
 
         def run(session: Session, low: int, high: int) -> None:
-            for meta, cnt in session.execute(query, {"lo": low, "hi": high}):
+            for meta, cnt, last in session.execute(query, {"lo": low, "hi": high}):
                 stat_rows[int(meta)] = stat_rows.get(int(meta), 0) + int(cnt or 0)
+                if last is not None:
+                    stat_last[int(meta)] = max(stat_last.get(int(meta), 0.0), float(last))
 
         return run
 
@@ -401,7 +404,10 @@ def _analyze(
         if known is None:
             continue
         statistic_id, source = known
-        statistics.setdefault(statistic_id, {"source": source, "rows": 0})["rows"] += cnt
+        item = statistics.setdefault(statistic_id, {"source": source, "rows": 0, "last": None})
+        item["rows"] += cnt
+        if meta in stat_last:
+            item["last"] = max(item["last"] or 0.0, stat_last[meta])
 
     counted: dict[str, int] = {}
     for key, cnt in event_rows.items():
@@ -447,6 +453,11 @@ def _analyze(
             stat_row *= factor
             event_row *= factor
             scaled = True
+
+    for item in statistics.values():
+        item["est_bytes"] = int(item["rows"] * stat_row)
+    for event in events:
+        event["est_bytes"] = int(event["rows"] * event_row)
 
     for entity_id, info in entities.items():
         stat = statistics.get(entity_id)
@@ -675,16 +686,62 @@ async def async_database_size(hass: HomeAssistant, analysis: dict[str, Any] | No
     return None
 
 
-async def async_purge_entities(hass: HomeAssistant, entity_ids: list[str], keep_days: int) -> None:
-    """Purge recorded data of entities older than keep_days (0 = everything)."""
+PURGE_WAIT_TIMEOUT = 1800
+PURGE_POLL_INTERVAL = 2.0
+_IDS_PER_QUERY = 400
+
+
+def _rows_older(hass: HomeAssistant, entity_ids: list[str], before: float) -> int:
+    """State rows of these entities older than ``before`` (blocking)."""
+    query = text(
+        "SELECT COUNT(*) FROM states s JOIN states_meta m ON m.metadata_id = s.metadata_id "
+        "WHERE m.entity_id IN :ids AND s.last_updated_ts < :before"
+    ).bindparams(bindparam("ids", expanding=True))
+    total = 0
+    with session_scope(hass=hass, read_only=True) as session:
+        for i in range(0, len(entity_ids), _IDS_PER_QUERY):
+            chunk = entity_ids[i : i + _IDS_PER_QUERY]
+            total += int(session.execute(query, {"ids": chunk, "before": before}).scalar() or 0)
+    return total
+
+
+async def async_purge_entities(
+    hass: HomeAssistant, entity_ids: list[str], keep_days: int, *, wait: bool = True
+) -> int:
+    """Purge recorded states of entities older than keep_days (0 = everything).
+
+    The service only queues the purge, and a large purge queues itself again
+    in batches, so the call returns long before the rows are gone. With
+    ``wait`` this polls until no row older than the cut-off is left and
+    returns how many were still there at the timeout (0 = done).
+    """
     if not entity_ids:
-        return
+        return 0
+    before = time.time() - keep_days * 86400
     await hass.services.async_call(
         "recorder",
         "purge_entities",
         {"entity_id": sorted(entity_ids), "keep_days": keep_days},
         blocking=True,
     )
+    if not wait:
+        return 0
+    instance = get_instance(hass)
+    ids = sorted(entity_ids)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + PURGE_WAIT_TIMEOUT
+    while True:
+        left = await instance.async_add_executor_job(_rows_older, hass, ids, before)
+        if left == 0 or loop.time() >= deadline:
+            if left:
+                _LOGGER.warning(
+                    "Purge of %s entities still has %s rows left after %s s",
+                    len(ids),
+                    left,
+                    PURGE_WAIT_TIMEOUT,
+                )
+            return left
+        await asyncio.sleep(PURGE_POLL_INTERVAL)
 
 
 async def async_purge(hass: HomeAssistant) -> None:
@@ -705,6 +762,92 @@ async def async_repack(hass: HomeAssistant) -> None:
         {"keep_days": get_instance(hass).keep_days, "repack": True},
         blocking=True,
     )
+
+
+EVENT_DELETE_CHUNK = 20000
+# never offered: legacy state rows may still point at these, and HA's own
+# purge handles them together with the states
+PROTECTED_EVENT_TYPES = frozenset({"state_changed"})
+
+
+def delete_events_chunk(session: Session, event_types: list[str], limit: int) -> int:
+    """Delete up to ``limit`` events of the given types, then loose event data."""
+    type_ids = [
+        int(row[0])
+        for row in session.execute(
+            text("SELECT event_type_id FROM event_types WHERE event_type IN :types").bindparams(
+                bindparam("types", expanding=True)
+            ),
+            {"types": event_types},
+        )
+    ]
+    if not type_ids:
+        return 0
+    ids = [
+        int(row[0])
+        for row in session.execute(
+            text("SELECT event_id FROM events WHERE event_type_id IN :types LIMIT :n").bindparams(
+                bindparam("types", expanding=True)
+            ),
+            {"types": type_ids, "n": limit},
+        )
+    ]
+    if ids:
+        session.execute(
+            text("DELETE FROM events WHERE event_id IN :ids").bindparams(
+                bindparam("ids", expanding=True)
+            ),
+            {"ids": ids},
+        )
+    loose = [
+        int(row[0])
+        for row in session.execute(
+            text(
+                "SELECT d.data_id FROM event_data d WHERE NOT EXISTS "
+                "(SELECT 1 FROM events e WHERE e.data_id = d.data_id) LIMIT :n"
+            ),
+            {"n": limit},
+        )
+    ]
+    if loose:
+        session.execute(
+            text("DELETE FROM event_data WHERE data_id IN :ids").bindparams(
+                bindparam("ids", expanding=True)
+            ),
+            {"ids": loose},
+        )
+    return len(ids) + len(loose)
+
+
+async def async_delete_events(
+    hass: HomeAssistant, event_types: list[str], *, chunk: int = EVENT_DELETE_CHUNK
+) -> int:
+    """Delete all recorded events of these types in chunks on the recorder thread.
+
+    The recorder has no purge by event type: excluding a type only stops new
+    rows. Each chunk is its own recorder task, so state writes keep flowing
+    between chunks. Returns the number of events deleted.
+    """
+    from . import repack  # noqa: PLC0415 - avoid an import cycle
+
+    types = sorted(set(event_types) - PROTECTED_EVENT_TYPES)
+    if not types:
+        return 0
+    total = 0
+    while True:
+        counted: list[int] = []
+
+        def job(instance: Any, out: list[int] = counted) -> None:
+            with session_scope(session=instance.get_session()) as session:
+                out.append(delete_events_chunk(session, types, chunk))
+
+        if not await repack.async_run_on_recorder(hass, job):  # pragma: no cover
+            raise HomeAssistantError("Recorder tasks are not available")
+        done = counted[0] if counted else 0
+        total += done
+        if done == 0:
+            return total
+        await asyncio.sleep(0)
 
 
 async def async_clear_statistics(hass: HomeAssistant, statistic_ids: list[str]) -> None:

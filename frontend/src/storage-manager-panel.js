@@ -30,6 +30,9 @@ const REC_ICONS = {
   statistics: "mdi:chart-box-outline",
   repack: "mdi:database-refresh",
   top_entities: "mdi:database-alert",
+  unused_statistics: "mdi:chart-line-variant",
+  system_log_events: "mdi:text-box-remove-outline",
+  system_log_rows: "mdi:text-box-remove-outline",
   debug_logging: "mdi:bug-outline",
   retention: "mdi:calendar-clock",
 };
@@ -47,6 +50,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     panel: { attribute: false },
     _tab: { state: true },
     _whatif: { state: true },
+    _unused: { state: true },
     _overview: { state: true },
     _entities: { state: true },
     _backups: { state: true },
@@ -160,6 +164,14 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     }
   }
 
+  async _loadUnused() {
+    try {
+      this._unused = await this._ws("unused_statistics");
+    } catch (err) {
+      this._unused = { items: [], off: [], bytes: 0, packages: false };
+    }
+  }
+
   async _loadBackups() {
     try {
       this._backups = await this._ws("backups");
@@ -172,6 +184,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     if ((tab === "database" || tab === "settings") && !this._entities) this._loadEntities();
     if (tab === "backups") this._loadBackups();
     if (tab === "database" || tab === "backups") this._loadHealth();
+    if (tab === "database") this._loadUnused();
   }
 
   _setTab(tab, pushHash = true) {
@@ -212,7 +225,10 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   async _previewAndClean(targets, extra = {}) {
     let preview;
     try {
-      preview = await this._ws("preview", { targets });
+      const select = {};
+      if (extra.statistic_ids) select.statistic_ids = extra.statistic_ids;
+      if (extra.event_types) select.event_types = extra.event_types;
+      preview = await this._ws("preview", { targets, ...select });
     } catch (err) {
       this._showToast(this.t("error", { msg: err.message }));
       return;
@@ -228,6 +244,13 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       else if (target === "purge") items.push(`${this.t("obsolete_purge")}: ${number(p.rows, this.lang)} · ${bytes(p.bytes, this.lang)}`);
       else if (target === "repack") items.push(`${this.t("rec_repack")} · ${bytes(p.bytes, this.lang)} – ${this._repackPlanText(p.plan)}`);
       else if (target === "docker") items.push(this.t("docker_title"));
+      else if (target === "unused_statistics") {
+        items.push(`${this.t("unused_title")}: ${p.items.length} · ${bytes(p.bytes, this.lang)}`);
+        if (p.switch_off) items.push(this.t("unused_switch_off_note", { n: p.switch_off }));
+      } else if (target === "events") {
+        p.items.forEach((e) => items.push(`${e.event_type}: ${number(e.rows, this.lang)} · ${bytes(e.est_bytes || 0, this.lang)}`));
+        if (p.items.some((e) => e.logbook)) items.push(this.t("events_logbook_note"));
+      }
     }
     const plan = preview.repack?.plan;
     const canConvert = !!plan?.can_convert;
@@ -264,6 +287,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       }
       await this._loadOverview();
       if (this._entities) await this._loadEntities();
+      if (this._unused) await this._loadUnused();
       if (this._tab === "backups") await this._loadBackups();
     } catch (err) {
       this._showToast(this.t("error", { msg: err.message }));
@@ -546,7 +570,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   _renderRec(r) {
     const t = this.t;
     const vars = {
-      count: r.count ?? "",
+      count: r.count != null ? number(r.count, this.lang) : "",
       share: r.share ? percent(r.share, this.lang) : "",
       sources: (r.sources || []).map((s) => (s === "default" ? t("debug_default") : this._integrationName(s))).join(", "),
     };

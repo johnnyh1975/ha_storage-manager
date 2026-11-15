@@ -70,6 +70,8 @@ class ManagerData:
     baselines_at: float = 0.0
     # entities that currently write far more than usual (None = not checked yet)
     heavy_writers: list[dict[str, Any]] | None = None
+    # entities whose long-term statistics are switched off (state_class removed)
+    stats_off: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -118,6 +120,7 @@ class ManagerData:
             },
             baselines_at=float(data.get("baselines_at") or 0),
             heavy_writers=data.get("heavy_writers"),
+            stats_off=sorted({str(e) for e in data.get("stats_off") or []}),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -144,6 +147,7 @@ class ManagerData:
             "rate_baselines": self.rate_baselines,
             "baselines_at": self.baselines_at,
             "heavy_writers": self.heavy_writers,
+            "stats_off": self.stats_off,
         }
 
 

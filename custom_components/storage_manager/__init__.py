@@ -14,6 +14,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
@@ -62,6 +63,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> b
 
     async def _daily(_now: datetime) -> None:
         await coordinator.async_run_retention(include_drop=False, include_daily=True)
+        await coordinator.async_sweep_statistics_off()
+
+    async def _started(_hass: HomeAssistant) -> None:
+        # statistics switched off before the restart: clear what was compiled since
+        await coordinator.async_sweep_statistics_off()
+
+    entry.async_on_unload(async_at_started(hass, _started))
 
     async def _analysis(_now: datetime) -> None:
         coordinator.async_schedule_analysis()

@@ -91,11 +91,23 @@ SETTING_KEYS: dict[str, tuple[type, int, int]] = {
 }
 
 
+CUSTOMIZE_KEY = "customize"  # in a block: entities whose statistics are switched off
+
+
 def build_block(
-    entities: list[str], filters: dict[str, list[str]], settings: dict[str, Any]
+    entities: list[str],
+    filters: dict[str, list[str]],
+    settings: dict[str, Any],
+    stats_off: list[str] | None = None,
 ) -> dict[str, Any]:
-    """The recorder block Storage Manager contributes (empty dict = nothing)."""
+    """What Storage Manager contributes to the package (empty dict = nothing).
+
+    The recorder block, plus under ``customize`` the entities whose
+    ``state_class`` is removed so that no long-term statistics are compiled.
+    """
     block: dict[str, Any] = {}
+    if stats_off:
+        block[CUSTOMIZE_KEY] = sorted(set(stats_off))
     exclude: dict[str, list[str]] = {}
     if entities:
         exclude["entities"] = sorted(set(entities))
@@ -120,12 +132,19 @@ def block_items(block: dict[str, Any]) -> set[str]:
     for key in SETTING_KEYS:
         if key in block:
             items.add(f"{key}={block[key]}")
+    for entity_id in block.get(CUSTOMIZE_KEY) or []:
+        items.add(f"statistics_off:{entity_id}")
     return items
 
 
 def render_package(block: dict[str, Any], mode: str | None) -> str:
     """YAML content of the managed package file."""
-    body: dict[str, Any] = {"recorder": block} if block else {}
+    recorder = {k: v for k, v in block.items() if k != CUSTOMIZE_KEY}
+    body: dict[str, Any] = {"recorder": recorder} if recorder else {}
+    if block.get(CUSTOMIZE_KEY):
+        body["homeassistant"] = {
+            "customize": {entity_id: {"state_class": None} for entity_id in block[CUSTOMIZE_KEY]}
+        }
     if mode == "include_dir_merge_named" and body:
         body = {PACKAGE_NAME: body}
     text = yaml.safe_dump(body, sort_keys=True, allow_unicode=True) if body else "{}\n"
@@ -157,7 +176,17 @@ def read_package(info: PackagesInfo) -> dict[str, Any]:
     if PACKAGE_NAME in data:
         data = data[PACKAGE_NAME] or {}
     recorder = data.get("recorder") or {}
-    return recorder if isinstance(recorder, dict) else {}
+    block = dict(recorder) if isinstance(recorder, dict) else {}
+    customize = (data.get("homeassistant") or {}).get("customize") or {}
+    if isinstance(customize, dict):
+        off = sorted(
+            e
+            for e, v in customize.items()
+            if isinstance(v, dict) and v.get("state_class", 0) is None
+        )
+        if off:
+            block[CUSTOMIZE_KEY] = off
+    return block
 
 
 def block_entities(block: dict[str, Any]) -> list[str]:

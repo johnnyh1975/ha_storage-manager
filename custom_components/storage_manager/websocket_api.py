@@ -158,7 +158,19 @@ async def _stop_analysis(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -
 
 
 async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
-    return await c.async_preview(msg["targets"])
+    return await c.async_preview(
+        msg["targets"],
+        statistic_ids=msg.get("statistic_ids"),
+        event_types=msg.get("event_types"),
+    )
+
+
+async def _unused_statistics(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_unused_statistics()
+
+
+async def _statistics_on(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_statistics_on(msg["entity_ids"])
 
 
 async def _clean(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -170,6 +182,7 @@ async def _clean(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         skip_backup=msg.get("skip_backup", False),
         repack_method=msg.get("repack_method"),
         convert=msg.get("convert", True),
+        event_types=msg.get("event_types"),
     )
 
 
@@ -315,8 +328,19 @@ def async_setup(hass: HomeAssistant) -> None:
     )
     _register(
         hass,
-        {"type": f"{DOMAIN}/preview", vol.Required("targets"): [vol.In(ALL_CLEAN_TARGETS)]},
+        {
+            "type": f"{DOMAIN}/preview",
+            vol.Required("targets"): [vol.In(ALL_CLEAN_TARGETS)],
+            vol.Optional("statistic_ids"): [str],
+            vol.Optional("event_types"): [str],
+        },
         _preview,
+    )
+    _register(hass, {"type": f"{DOMAIN}/unused_statistics"}, _unused_statistics)
+    _register(
+        hass,
+        {"type": f"{DOMAIN}/statistics_on", vol.Required("entity_ids"): [ENTITY_ID]},
+        _statistics_on,
     )
     _register(
         hass,
@@ -329,6 +353,7 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("skip_backup", default=False): bool,
             vol.Optional("repack_method"): vol.In(list(REPACK_METHODS)),
             vol.Optional("convert", default=True): bool,
+            vol.Optional("event_types"): [str],
         },
         _clean,
     )

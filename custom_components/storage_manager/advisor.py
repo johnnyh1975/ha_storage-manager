@@ -150,6 +150,30 @@ def _is_noise(facts: EntityFacts) -> bool:
     )
 
 
+# device classes whose long-term trend people do look at, even on diagnostic entities
+KEEP_STATISTICS_CLASSES = frozenset(
+    {"battery", "temperature", "humidity", "voltage", "power", "energy", "current"}
+)
+
+
+def statistics_noise(facts: EntityFacts) -> str | None:
+    """Kind of a sensor whose long-term statistics are of no use, else None.
+
+    Stricter than the history rule: the diagnostic category alone is not
+    enough here (battery levels or device temperatures are diagnostic, and
+    their trend over months matters); the name or device class has to say
+    signal, uptime, IP, firmware and the like, or it is a time sensor.
+    """
+    if facts.state_class is None or facts.device_class in KEEP_STATISTICS_CLASSES:
+        return None
+    if _is_time(facts):
+        return "time"
+    object_id = facts.entity_id.split(".", 1)[-1]
+    if facts.device_class in NOISE_DEVICE_CLASSES or NOISE_RE.search(object_id):
+        return "noise"
+    return None
+
+
 def _is_time(facts: EntityFacts) -> bool:
     object_id = facts.entity_id.split(".", 1)[-1]
     return facts.platform in TIME_PLATFORMS or (

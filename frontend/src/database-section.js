@@ -165,15 +165,104 @@ export const DatabaseSection = (Base) =>
           ? html`<div class="card"><div class="center"><span class="spinner"></span></div></div>`
           : !ent.analysis_at
           ? html`<div class="card"><p class="muted">${t("analysis_needed")}</p></div>`
-          : html`${this._renderInbox(ent)} ${this._renderExplorer(ent)}`}
+          : html`${this._renderInbox(ent)} ${this._renderUnused()} ${this._renderExplorer(ent)}`}
 
         ${this._healthCard("database")}
-        ${ent?.events?.length
-          ? html`<div class="card"><h2>${t("events_title")}</h2>
-              ${ent.events.slice(0, 8).map((e) => html`<div class="list-row"><div><code>${e.event_type}</code></div><div></div><div class="num">${number(e.rows, this.lang)}</div></div>`)}</div>`
-          : nothing}
+        ${this._renderEvents(ent)}
         ${this._renderDetail()}
       `;
+    }
+
+    // ------------------------------------------------ unused statistics
+
+    _renderUnused() {
+      const t = this.t;
+      const u = this._unused;
+      if (!u || (!u.items.length && !u.off.length)) return nothing;
+      const groups = ["noise", "time", "disabled", "stale_import"]
+        .map((kind) => ({ kind, items: u.items.filter((i) => i.kind === kind) }))
+        .filter((g) => g.items.length);
+      const busy = !!this._working;
+      return html`<div class="card">
+        <h2>${t("unused_title")}<span class="spacer"></span>
+          ${u.bytes ? html`<span class="muted small">${bytes(u.bytes, this.lang)}</span>` : nothing}</h2>
+        <p class="muted small" style="margin-top:0">${t("unused_hint")}</p>
+        ${groups.map((g) => {
+          const open = this._unusedOpen === g.kind;
+          const sum = g.items.reduce((a, i) => a + i.bytes, 0);
+          const blocked = (g.kind === "noise" || g.kind === "time") && !u.packages;
+          return html`<div class="list-row">
+            <div>
+              <button class="linklike group-toggle" aria-expanded=${open ? "true" : "false"}
+                @click=${() => (this._unusedOpen = open ? null : g.kind)}>
+                <span class="chev">${open ? "▾" : "▸"}</span>${t(`unused_${g.kind}`, { n: g.items.length })}</button>
+              <div class="muted small">${t(blocked ? "unused_needs_packages" : `unused_${g.kind}_hint`)}</div>
+              ${open
+                ? html`<ul class="group-members">${g.items.slice(0, 30).map(
+                    (i) => html`<li>${i.name} <span class="muted small">${bytes(i.bytes, this.lang)}${i.last ? ` · ${t("unused_last", { date: dateTime(i.last, this.lang) })}` : ""}</span></li>`
+                  )}${g.items.length > 30 ? html`<li class="muted">${t("more_n", { n: g.items.length - 30 })}</li>` : nothing}</ul>`
+                : nothing}
+            </div>
+            <div class="num">${bytes(sum, this.lang)}</div>
+            <div><button class="btn" ?disabled=${busy || blocked}
+              @click=${() => this._previewAndClean(["unused_statistics"], { statistic_ids: g.items.map((i) => i.statistic_id) })}>
+              ${t(g.kind === "noise" || g.kind === "time" ? "unused_switch_off" : "unused_delete")}</button></div>
+          </div>`;
+        })}
+        ${u.off.length
+          ? html`<h4>${t("unused_off_title", { n: u.off.length })}</h4>
+              <p class="muted small" style="margin-top:0">${t("unused_off_hint")}</p>
+              <ul class="group-members">${u.off.map(
+                (e) => html`<li>${this.hass.states[e]?.attributes?.friendly_name || e}
+                  <button class="linklike" ?disabled=${busy} @click=${() => this._statisticsOn([e])}>${t("unused_on")}</button></li>`
+              )}</ul>`
+          : nothing}
+      </div>`;
+    }
+
+    async _statisticsOn(entityIds) {
+      this._working = "statistics_on";
+      try {
+        const res = await this._ws("statistics_on", { entity_ids: entityIds });
+        this._showToast(this.t(res.packages_missing ? "packages_banner" : "unused_on_done"));
+        await Promise.all([this._loadUnused(), this._loadOverview()]);
+      } catch (err) {
+        this._showToast(this.t("error", { msg: err.message }));
+      } finally {
+        this._working = null;
+      }
+    }
+
+    // ------------------------------------------------------------- events
+
+    _renderEvents(ent) {
+      const t = this.t;
+      const events = ent?.event_types || [];
+      if (!events.length) return nothing;
+      const sys = this._overview?.data?.system_log;
+      const busy = !!this._working;
+      const excluded = events.filter((e) => e.excluded && e.deletable);
+      return html`<div class="card"><h2>${t("events_title")}</h2>
+        <p class="muted small" style="margin-top:0">${t("events_hint")}</p>
+        ${sys?.fire_event
+          ? html`<div class="banner" style="margin:8px 0"><div class="txt">${t("system_log_fire_event", { rows: number(sys.rows, this.lang) })}</div></div>`
+          : nothing}
+        ${events.slice(0, 12).map(
+          (e) => html`<div class="list-row">
+            <div><code>${e.event_type}</code>
+              ${e.excluded ? html` <span class="tag">${t("events_excluded")}</span>` : nothing}
+              ${e.logbook ? html` <span class="tag">${t("events_logbook")}</span>` : nothing}</div>
+            <div class="num">${number(e.rows, this.lang)}${e.est_bytes ? html`<br /><span class="muted small">${bytes(e.est_bytes, this.lang)}</span>` : nothing}</div>
+            <div>${e.deletable
+              ? html`<button class="btn" ?disabled=${busy} @click=${() => this._previewAndClean(["events"], { event_types: [e.event_type] })}>${t("events_delete")}</button>`
+              : nothing}</div>
+          </div>`
+        )}
+        ${excluded.length > 1
+          ? html`<div class="row" style="margin-top:8px"><button class="btn" ?disabled=${busy}
+              @click=${() => this._previewAndClean(["events"], { event_types: excluded.map((e) => e.event_type) })}>${t("events_delete_excluded", { n: excluded.length })}</button></div>`
+          : nothing}
+      </div>`;
     }
 
     // -------------------------------------------------------------- inbox
@@ -848,7 +937,17 @@ export const DatabaseSection = (Base) =>
             ${["statistics", "history_stats", "filter"].includes(h.domain) ? html`<span class="tag ok">${t("protected_history_reader")}</span>` : nothing}</li>`)}
           ${(usage.dashboards || []).map((db) => html`<li>${t("detail_dashboard", { title: db.dashboard, card: db.card, days: db.days })}</li>`)}
           ${usage.energy ? html`<li>${t("note_energy")}</li>` : nothing}
+          ${(usage.statistics_cards || []).length
+            ? html`<li>${t("detail_statistics_cards", { titles: usage.statistics_cards.join(", ") })}</li>`
+            : nothing}
+          ${(usage.yaml || []).length
+            ? html`<li>${t("detail_yaml")}: ${usage.yaml.map((y) => `${y.file}:${y.line}`).join(", ")}</li>`
+            : nothing}
+          ${(usage.dynamic || []).length
+            ? html`<li class="muted">${t("detail_dynamic", { files: usage.dynamic.join(", ") })}</li>`
+            : nothing}
           ${!autoNames.length && !scriptNames.length && !(usage.helpers || []).length && !(usage.dashboards || []).length && !usage.energy
+            && !(usage.statistics_cards || []).length && !(usage.yaml || []).length
             ? html`<li class="muted">${t("detail_unused")}</li>`
             : nothing}
         </ul>

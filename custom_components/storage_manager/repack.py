@@ -244,7 +244,7 @@ async def async_run_on_recorder(hass: HomeAssistant, job: Callable[[Any], None])
     get_instance(hass).queue_task(task)
     error = await future
     if error is not None:
-        raise HomeAssistantError(f"Repack failed: {error}") from error
+        raise HomeAssistantError(f"Recorder task failed: {error}") from error
     return True
 
 
