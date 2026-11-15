@@ -138,6 +138,21 @@ def _build_inbox(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(singles, key=lambda a: (not a.get("conflict"), -a["saving"]))
 
 
+CHANGE_ACTIONS = ("purge_entities", "recorder_changes", "auto_rules", "statistics_on")
+
+
+def _changes_database(entry: dict[str, Any]) -> bool:
+    """History entries that change what the database holds (markers in the chart)."""
+    if entry.get("action") in CHANGE_ACTIONS:
+        return True
+    if entry.get("action") != "cleanup":
+        return False
+    targets = set((entry.get("details") or {}).get("targets") or [])
+    return bool(targets & {*DB_DELETE_TARGETS, "repack"}) and not (
+        (entry.get("details") or {}).get("blocked")
+    )
+
+
 def _needs_backup(db_targets: list[str]) -> bool:
     """Outdated rows go anyway in Home Assistant's nightly purge: no backup for those."""
     return any(t != "purge" for t in db_targets)
@@ -420,9 +435,15 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.store.data.analysis = result
             file_bytes = await database.async_database_size(self.hass, result)
             table_sizes = result.get("table_sizes") or {}
-            self.store.add_db_sample(
-                file_bytes, int(sum(table_sizes.values())) if table_sizes else file_bytes
-            )
+            freelist = result.get("freelist_bytes")
+            if file_bytes and freelist is not None:
+                # bytes in use: fresh from the page counts, unlike the cached
+                # table sizes, and without the free pages a purge leaves behind
+                self.store.add_db_sample(file_bytes, max(file_bytes - freelist, 0), live=True)
+            else:
+                self.store.add_db_sample(
+                    file_bytes, int(sum(table_sizes.values())) if table_sizes else file_bytes
+                )
             self._usage_at = 0.0
             self._update_writers(result)
             self.store.schedule_save()
@@ -717,6 +738,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           energy dashboard or statistics card shows them: switched off by
           removing their state_class, then cleared
         - statistics of disabled entities: nothing adds to them any more
+        - statistics of entities the recorder no longer records (excluded by
+          us, by YAML or left out of an include list): they stopped growing
         - imported statistics without a new row for STALE_IMPORT_DAYS
         Statistics of deleted entities are the "statistics" target.
         """
@@ -729,6 +752,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         off = set(data.stats_off)
         found: list[dict[str, Any]] = []
         candidates: dict[str, dict[str, Any]] = {}
+        recorded = getattr(get_instance(self.hass), "entity_filter", None)
         for sid, info in stats.items():
             item = {
                 "statistic_id": sid,
@@ -746,6 +770,10 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             entry = ent_reg.async_get(sid)
             if entry is not None and entry.disabled_by is not None:
                 found.append({**item, "kind": "disabled"})
+                continue
+            exists = entry is not None or self.hass.states.get(sid) is not None
+            if exists and recorded is not None and not recorded(sid):
+                candidates[sid] = {**item, "kind": "excluded"}
                 continue
             if self.hass.states.get(sid) is None or sid not in entities:
                 continue
@@ -1062,11 +1090,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "event_types": self.events_overview(),
             "dismissed_count": len(data.dismissed),
             "size_history": data.db_samples,
-            "changes": [
-                h["time"]
-                for h in data.history
-                if h["action"] in ("purge_entities", "recorder_changes")
-            ],
+            "changes": [h["time"] for h in data.history if _changes_database(h)],
         }
 
     async def async_entity_detail(self, entity_id: str) -> dict[str, Any]:
@@ -1759,6 +1783,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._clean_unused_statistics(statistic_ids, results, deleted, errors)
                     if "events" in db_targets:
                         await self._clean_events(event_types, results, deleted)
+                    if db_targets:
+                        # a fresh sample for the effect chart and fresh sizes
+                        self._schedule_reanalysis()
                     if "repack" in targets:
                         await self._clean_repack(repack_method, convert, results, errors)
             finally:
@@ -1888,7 +1915,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "events": 0,
                     "bytes": 0,
                 }
-            self._schedule_reanalysis()
 
     async def _clean_unused_statistics(
         self,

@@ -227,7 +227,7 @@ const de = {
   inbox_accept: "Übernehmen",
   effect_title: "Wirkung",
   effect_waiting: "Nach der nächsten Analyse siehst du hier, was deine Änderungen gebracht haben.",
-  effect_since_change: "Seit der ersten Änderung: {delta} ({bytes}).",
+  effect_since_change: "Datei seit {date}: {delta} ({bytes}).",
   effect_no_changes: "Noch keine Änderungen – der Verlauf zeigt die normale Entwicklung.",
   effect_need_samples: "Der Verlauf entsteht mit jeder Analyse (täglich und nach jeder Änderung).",
   view_top: "Top-Verursacher",
@@ -522,6 +522,14 @@ const de = {
   target_unused_statistics: "Statistiken ohne Nutzen",
   target_events: "Ereignisse",
   action_statistics_on: "Statistik wieder eingeschaltet",
+  effect_since_change_data: "Daten in der Datenbank seit {date}: {delta} ({bytes}).",
+  effect_data_soon: "Ab der nächsten Analyse zeigt die durchgezogene Linie die Daten ohne freie Seiten. Kürzere Aufbewahrung macht Seiten frei, die Datei schrumpft erst beim Neupacken.",
+  effect_legend_data: "Daten",
+  effect_legend_file: "Datei",
+  effect_legend_change: "Änderung",
+  unused_excluded: "Nicht mehr aufgezeichnete Entitäten ({n})",
+  unused_excluded_hint: "Der Recorder zeichnet diese Entitäten nicht mehr auf (eigener Ausschluss, YAML-Filter oder Include-Liste). Neue Statistik entsteht keine, die alte bleibt sonst für immer.",
+  engine_untested: "{engine}: Analyse, Purges und das Löschen von Statistiken und Ereignissen laufen über Home Assistant und SQLAlchemy, sind auf dieser Engine aber nicht getestet. Integritätsprüfung und Neupacken mit wenig Speicher gibt es nur für SQLite.",
 };
 
 const en = {
@@ -750,7 +758,7 @@ const en = {
   inbox_accept: "Accept",
   effect_title: "Effect",
   effect_waiting: "After the next analysis you will see here what your changes achieved.",
-  effect_since_change: "Since the first change: {delta} ({bytes}).",
+  effect_since_change: "File since {date}: {delta} ({bytes}).",
   effect_no_changes: "No changes yet – the chart shows the normal development.",
   effect_need_samples: "The chart builds up with every analysis (daily and after each change).",
   view_top: "Top causes",
@@ -1045,6 +1053,14 @@ const en = {
   target_unused_statistics: "unused statistics",
   target_events: "events",
   action_statistics_on: "Statistics switched back on",
+  effect_since_change_data: "Data in the database since {date}: {delta} ({bytes}).",
+  effect_data_soon: "From the next analysis the solid line shows the data without free pages. Shorter retention frees pages; the file only shrinks when repacked.",
+  effect_legend_data: "Data",
+  effect_legend_file: "File",
+  effect_legend_change: "Change",
+  unused_excluded: "Entities no longer recorded ({n})",
+  unused_excluded_hint: "The recorder no longer records these entities (own exclusion, YAML filter or include list). No new statistics are compiled; the old ones would stay forever.",
+  engine_untested: "{engine}: analysis, purges and deleting statistics and events go through Home Assistant and SQLAlchemy but are not tested on this engine. The integrity check and repacking with little space are SQLite only.",
 };
 
 const LANGS = { de, en };

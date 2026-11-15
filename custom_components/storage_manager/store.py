@@ -99,7 +99,7 @@ class ManagerData:
             analysis=data.get("analysis"),
             migrated_from=list(data.get("migrated_from") or []),
             dismissed={str(k): str(v) for k, v in (data.get("dismissed") or {}).items()},
-            db_samples=[list(x) for x in data.get("db_samples") or [] if len(x) == 3],
+            db_samples=[list(x) for x in data.get("db_samples") or [] if len(x) in (3, 4)],
             integrity=data.get("integrity"),
             attestations={str(k): str(v) for k, v in (data.get("attestations") or {}).items()},
             kind_rules={
@@ -182,12 +182,22 @@ class ManagerStore:
         self.data.samples.append([now, float(used), float(total)])
         self.schedule_save()
 
-    def add_db_sample(self, file_bytes: int | None, data_bytes: int | None) -> None:
-        """Remember the database size after an analysis (90 days)."""
+    def add_db_sample(
+        self, file_bytes: int | None, data_bytes: int | None, *, live: bool = False
+    ) -> None:
+        """Remember the database size after an analysis (90 days).
+
+        ``[time, file, data, 1]``: the fourth element marks ``data`` as the
+        bytes in use (file without free pages), measured fresh. Older samples
+        have three elements and a data value of mixed meaning.
+        """
         now = dt_util.utcnow().timestamp()
         cutoff = now - DB_SAMPLE_MAX_AGE_DAYS * 86400
         self.data.db_samples = [s for s in self.data.db_samples if s[0] >= cutoff]
-        self.data.db_samples.append([now, float(file_bytes or 0), float(data_bytes or 0)])
+        sample = [now, float(file_bytes or 0), float(data_bytes or 0)]
+        if live:
+            sample.append(1.0)
+        self.data.db_samples.append(sample)
         self.schedule_save()
 
     def log(self, action: str, freed: int, details: dict[str, Any] | None = None) -> None:

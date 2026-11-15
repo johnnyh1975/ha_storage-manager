@@ -325,3 +325,95 @@ def test_statistics_noise_is_strict() -> None:
     assert advisor.statistics_noise(signal) == "noise"
     clock = _facts("sensor.time", state_class="measurement", platform="time_date")
     assert advisor.statistics_noise(clock) == "time"
+
+
+async def test_effect_samples_and_markers(hass: HomeAssistant, hass_ws_client) -> None:
+    """Samples carry the bytes in use; cleanups that touch the database are markers."""
+    from custom_components.storage_manager.coordinator import _changes_database
+
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    with (
+        patch.object(database, "async_database_size", AsyncMock(return_value=10 * MB)),
+        patch.object(
+            database,
+            "async_analyze",
+            AsyncMock(
+                return_value={
+                    "generated_at": time.time(),
+                    "entities": {},
+                    "statistics": {},
+                    "events": [],
+                    "freelist_bytes": 4 * MB,
+                    "table_sizes": {"states": 9 * MB},
+                }
+            ),
+        ),
+    ):
+        await coordinator.async_run_analysis()
+    assert coordinator.store.data.db_samples[-1][1:] == [10 * MB, 6 * MB, 1.0]
+    with (
+        patch.object(database, "async_database_size", AsyncMock(return_value=10 * MB)),
+        patch.object(
+            database,
+            "async_analyze",
+            AsyncMock(
+                return_value={
+                    "generated_at": time.time(),
+                    "entities": {},
+                    "statistics": {},
+                    "events": [],
+                    "freelist_bytes": None,
+                    "table_sizes": {"states": 7 * MB},
+                }
+            ),
+        ),
+    ):
+        await coordinator.async_run_analysis()
+    assert coordinator.store.data.db_samples[-1][1:] == [10 * MB, 7 * MB]
+
+    assert _changes_database({"action": "purge_entities"})
+    assert _changes_database({"action": "cleanup", "details": {"targets": ["repack"]}})
+    assert _changes_database({"action": "cleanup", "details": {"targets": ["events"]}})
+    assert not _changes_database({"action": "cleanup", "details": {"targets": ["files"]}})
+    assert not _changes_database(
+        {"action": "cleanup", "details": {"targets": ["orphans"], "blocked": "no_space"}}
+    )
+    assert not _changes_database({"action": "statistics_off_unknown"})
+
+    with patch.object(coordinator, "_schedule_reanalysis") as again:
+        await coordinator.async_clean(["orphans"])
+    again.assert_called_once()
+
+
+async def test_unused_statistics_of_excluded(hass: HomeAssistant) -> None:
+    """Entities the recorder no longer records: their statistics only stay behind."""
+    entry = await setup_entry(hass)
+    coordinator = entry.runtime_data
+    for entity_id in ("sensor.old_power", "sensor.energy_meter", "sensor.kept"):
+        hass.states.async_set(entity_id, "1", {"state_class": "measurement"})
+    now = time.time()
+    coordinator.store.data.analysis = {
+        "generated_at": now,
+        "entities": {},
+        "statistics": {
+            e: {"source": "recorder", "rows": 10, "est_bytes": MB, "last": now}
+            for e in ("sensor.old_power", "sensor.energy_meter", "sensor.kept")
+        },
+    }
+    instance = get_instance(hass)
+    usage = {"sensor.energy_meter": EntityUsage(energy=True)}
+    with (
+        patch.object(instance, "entity_filter", lambda e: e == "sensor.kept"),
+        patch.object(coordinator, "async_usage", AsyncMock(return_value=usage)),
+    ):
+        unused = await coordinator.async_unused_statistics()
+    assert [(i["statistic_id"], i["kind"]) for i in unused["items"]] == [
+        ("sensor.old_power", "excluded")
+    ]
+    # without a filter everything is recorded
+    with (
+        patch.object(instance, "entity_filter", None),
+        patch.object(coordinator, "async_usage", AsyncMock(return_value={})),
+    ):
+        assert (await coordinator.async_unused_statistics())["items"] == []

@@ -156,6 +156,9 @@ export const DatabaseSection = (Base) =>
               <span class="spacer"></span>
               <button class="btn" ?disabled=${running || !!this._working} @click=${this._analyze}>${t("analyze")}</button>
             </div>
+            ${ent?.dialect && ent.dialect !== "sqlite"
+              ? html`<div class="banner" style="margin-top:8px"><div class="txt">${t("engine_untested", { engine: ent.dialect === "mysql" ? "MariaDB/MySQL" : ent.dialect === "postgresql" ? "PostgreSQL" : ent.dialect })}</div></div>`
+              : nothing}
             ${this._renderAnalysisProgress(db)}
           </div>
           ${this._renderEffect(ent)}
@@ -179,7 +182,7 @@ export const DatabaseSection = (Base) =>
       const t = this.t;
       const u = this._unused;
       if (!u || (!u.items.length && !u.off.length)) return nothing;
-      const groups = ["noise", "time", "disabled", "stale_import"]
+      const groups = ["noise", "time", "excluded", "disabled", "stale_import"]
         .map((kind) => ({ kind, items: u.items.filter((i) => i.kind === kind) }))
         .filter((g) => g.items.length);
       const busy = !!this._working;
@@ -424,48 +427,75 @@ export const DatabaseSection = (Base) =>
 
     _renderEffect(ent) {
       const t = this.t;
-      const samples = (ent?.size_history || []).filter((s) => s[2] > 0);
+      const samples = (ent?.size_history || []).filter((s) => s[1] > 0 || s[2] > 0);
+      const live = samples.filter((s) => s[3] === 1 && s[2] > 0);
       const changes = (ent?.changes || []).map((c) => new Date(c).getTime() / 1000);
+      // what the chart compares: bytes in use where measured, else the file
+      const series = live.length >= 2 ? live.map((s) => [s[0], s[2]]) : samples.map((s) => [s[0], s[1]]);
       let summary = t("effect_waiting");
-      if (samples.length >= 2 && changes.length) {
-        const first = changes[0];
-        const before = [...samples].reverse().find((s) => s[0] <= first) || samples[0];
-        const latest = samples[samples.length - 1];
-        if (latest[0] > before[0]) {
-          const delta = (latest[2] - before[2]) / before[2];
-          summary = t("effect_since_change", {
+      if (series.length >= 2 && changes.length) {
+        const first = changes.find((c) => c >= series[0][0]) ?? changes[changes.length - 1];
+        const before = [...series].reverse().find((s) => s[0] <= first) || series[0];
+        const latest = series[series.length - 1];
+        if (latest[0] > before[0] && before[1] > 0) {
+          const delta = (latest[1] - before[1]) / before[1];
+          summary = t(live.length >= 2 ? "effect_since_change_data" : "effect_since_change", {
             delta: `${delta <= 0 ? "−" : "+"}${percent(Math.abs(delta), this.lang)}`,
-            bytes: bytes(Math.abs(latest[2] - before[2]), this.lang),
+            bytes: bytes(Math.abs(latest[1] - before[1]), this.lang),
+            date: dateTime(before[0], this.lang),
           });
         }
-      } else if (samples.length >= 2) {
+      } else if (series.length >= 2) {
         summary = t("effect_no_changes");
       }
       return html`<div class="card">
         <h2>${t("effect_title")}</h2>
         ${samples.length >= 2 ? this._sizeChart(samples, changes) : html`<p class="muted small">${t("effect_need_samples")}</p>`}
         <p class="small" style="margin:8px 0 0">${summary}</p>
+        ${samples.length >= 2 && live.length < 2 ? html`<p class="muted small" style="margin:4px 0 0">${t("effect_data_soon")}</p>` : nothing}
       </div>`;
     }
 
-    _sizeChart(samples, changes) {
+    _sizeChart(all, changes) {
+      // once the data line exists, its period is the chart: older file sizes
+      // (before and after a repack) would squash the data changes flat
+      const firstLive = all.find((s) => s[3] === 1 && s[2] > 0);
+      const liveCount = all.filter((s) => s[3] === 1 && s[2] > 0).length;
+      const samples = liveCount >= 2 ? all.filter((s) => s[0] >= firstLive[0]) : all;
       const w = 320;
-      const h = 90;
+      const h = 96;
+      const left = 44;
       const xs = samples.map((s) => s[0]);
-      const ys = samples.map((s) => s[2]);
+      const files = samples.map((s) => [s[0], s[1]]).filter((s) => s[1] > 0);
+      const data = samples.filter((s) => s[3] === 1 && s[2] > 0).map((s) => [s[0], s[2]]);
+      const values = [...files, ...data].map((s) => s[1]);
       const x0 = Math.min(...xs);
       const x1 = Math.max(...xs, x0 + 1);
-      const y1 = Math.max(...ys) * 1.05;
-      const sx = (x) => ((x - x0) / (x1 - x0)) * w;
-      const sy = (y) => h - (y / y1) * h;
-      const line = samples.map((s, i) => `${i ? "L" : "M"}${sx(s[0]).toFixed(1)},${sy(s[2]).toFixed(1)}`).join(" ");
-      const area = `${line} L${sx(x1).toFixed(1)},${h} L0,${h} Z`;
-      return html`<svg class="chart" viewBox="0 0 ${w} ${h + 14}" role="img" aria-label=${this.t("effect_title")}>
-        ${svg`<path d=${area} fill="var(--sm-c1)" opacity="0.12"></path>
-          <path d=${line} fill="none" stroke="var(--sm-c1)" stroke-width="2"></path>
+      // a scale around the values, not from zero: a 3 % change must be visible
+      const lo = Math.min(...values);
+      const hi = Math.max(...values);
+      const pad = Math.max((hi - lo) * 0.1, hi * 0.01, 1);
+      const y0 = Math.max(lo - pad, 0);
+      const y1 = hi + pad;
+      const sx = (x) => left + ((x - x0) / (x1 - x0)) * (w - left);
+      const sy = (y) => h - ((y - y0) / (y1 - y0)) * h;
+      const path = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ");
+      return html`<svg class="chart" viewBox="0 0 ${w} ${h + 30}" role="img" aria-label=${this.t("effect_title")}>
+        ${svg`<line x1=${left} x2=${w} y1="0" y2="0" stroke="var(--divider-color)"></line>
+          <line x1=${left} x2=${w} y1=${h} y2=${h} stroke="var(--divider-color)"></line>
+          <text x=${left - 4} y="8" font-size="9" text-anchor="end" fill="var(--secondary-text-color)">${bytes(y1, this.lang)}</text>
+          <text x=${left - 4} y=${h} font-size="9" text-anchor="end" fill="var(--secondary-text-color)">${bytes(y0, this.lang)}</text>
           ${changes.filter((c) => c >= x0 && c <= x1).map((c) => svg`<line x1=${sx(c)} x2=${sx(c)} y1="0" y2=${h} stroke="var(--warning-color, #ffa600)" stroke-dasharray="3 3"></line>`)}
-          <text x="0" y=${h + 12} font-size="10" fill="var(--secondary-text-color)">${dateTime(x0, this.lang)}</text>
-          <text x=${w} y=${h + 12} font-size="10" text-anchor="end" fill="var(--secondary-text-color)">${bytes(ys[ys.length - 1], this.lang)}</text>`}
+          ${files.length >= 2 ? svg`<path d=${path(files)} fill="none" stroke="var(--secondary-text-color)" stroke-width="1.25" stroke-dasharray="4 3"></path>` : nothing}
+          ${data.length >= 2 ? svg`<path d=${path(data)} fill="none" stroke="var(--sm-c1)" stroke-width="2"></path>` : nothing}
+          <text x=${left} y=${h + 12} font-size="10" fill="var(--secondary-text-color)">${dateTime(x0, this.lang)}</text>
+          <text x=${w} y=${h + 12} font-size="10" text-anchor="end" fill="var(--secondary-text-color)">${dateTime(x1, this.lang)}</text>
+          ${data.length >= 2 ? svg`<line x1=${left} x2=${left + 14} y1=${h + 24} y2=${h + 24} stroke="var(--sm-c1)" stroke-width="2"></line>
+            <text x=${left + 18} y=${h + 27} font-size="10" fill="var(--secondary-text-color)">${this.t("effect_legend_data")}</text>` : nothing}
+          <line x1=${left + 110} x2=${left + 124} y1=${h + 24} y2=${h + 24} stroke="var(--secondary-text-color)" stroke-dasharray="4 3"></line>
+          <text x=${left + 128} y=${h + 27} font-size="10" fill="var(--secondary-text-color)">${this.t("effect_legend_file")}</text>
+          <line x1=${left + 200} x2=${left + 210} y1=${h + 24} y2=${h + 24} stroke="var(--warning-color, #ffa600)" stroke-dasharray="3 3"></line>
+          <text x=${left + 214} y=${h + 27} font-size="10" fill="var(--secondary-text-color)">${this.t("effect_legend_change")}</text>`}
       </svg>`;
     }
 
