@@ -517,6 +517,10 @@ export const styles = css`
   .hint { color: var(--secondary-text-color); margin-top: 2px; }
   .hint::before { content: "💡 "; }
   .field.whatif { grid-column: 1 / -1; }
+  h2.wrap { flex-wrap: wrap; row-gap: 2px; }
+  @media (max-width: 600px) {
+    h2.wrap .spacer { flex-basis: 100%; height: 0; }
+  }
   .field.whatif .chips { margin-top: 4px; }
   .kind-auto { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
   @media (max-width: 600px) {

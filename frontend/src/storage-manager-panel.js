@@ -51,6 +51,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _tab: { state: true },
     _whatif: { state: true },
     _unused: { state: true },
+    _unusedOpen: { state: true },
     _overview: { state: true },
     _entities: { state: true },
     _backups: { state: true },
@@ -248,7 +249,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         items.push(`${this.t("unused_title")}: ${p.items.length} · ${bytes(p.bytes, this.lang)}`);
         if (p.switch_off) items.push(this.t("unused_switch_off_note", { n: p.switch_off }));
       } else if (target === "events") {
-        p.items.forEach((e) => items.push(`${e.event_type}: ${number(e.rows, this.lang)} · ${bytes(e.est_bytes || 0, this.lang)}`));
+        p.items.forEach((e) => items.push(`${e.event_type}: ${this.t("events_rows", { n: number(e.rows, this.lang) })} · ${bytes(e.est_bytes || 0, this.lang)}`));
         if (p.items.some((e) => e.logbook)) items.push(this.t("events_logbook_note"));
       }
     }
@@ -504,7 +505,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       </div>
 
       <div class="card">
-        <h2>${t("reclaim_title")}<span class="spacer"></span>
+        <h2 class="wrap">${t("reclaim_title")}<span class="spacer"></span>
           ${data.reclaimable.total > 0
             ? html`<span class="muted small">${t("reclaim_total", { bytes: bytes(data.reclaimable.total, this.lang) })}</span>`
             : nothing}

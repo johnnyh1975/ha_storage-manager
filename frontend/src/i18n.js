@@ -530,6 +530,7 @@ const de = {
   unused_excluded: "Nicht mehr aufgezeichnete Entitäten ({n})",
   unused_excluded_hint: "Der Recorder zeichnet diese Entitäten nicht mehr auf (eigener Ausschluss, YAML-Filter oder Include-Liste). Neue Statistik entsteht keine, die alte bleibt sonst für immer.",
   engine_untested: "{engine}: Analyse, Purges und das Löschen von Statistiken und Ereignissen laufen über Home Assistant und SQLAlchemy, sind auf dieser Engine aber nicht getestet. Integritätsprüfung und Neupacken mit wenig Speicher gibt es nur für SQLite.",
+  events_rows: "{n} Zeilen",
 };
 
 const en = {
@@ -1061,6 +1062,7 @@ const en = {
   unused_excluded: "Entities no longer recorded ({n})",
   unused_excluded_hint: "The recorder no longer records these entities (own exclusion, YAML filter or include list). No new statistics are compiled; the old ones would stay forever.",
   engine_untested: "{engine}: analysis, purges and deleting statistics and events go through Home Assistant and SQLAlchemy but are not tested on this engine. The integrity check and repacking with little space are SQLite only.",
+  events_rows: "{n} rows",
 };
 
 const LANGS = { de, en };
