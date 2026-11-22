@@ -31,6 +31,7 @@ const REC_ICONS = {
   repack: "mdi:database-refresh",
   top_entities: "mdi:database-alert",
   unused_statistics: "mdi:chart-line-variant",
+  dead_entities: "mdi:power-plug-off-outline",
   system_log_events: "mdi:text-box-remove-outline",
   system_log_rows: "mdi:text-box-remove-outline",
   debug_logging: "mdi:bug-outline",
@@ -52,6 +53,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _whatif: { state: true },
     _unused: { state: true },
     _unusedOpen: { state: true },
+    _dead: { state: true },
+    _deadSel: { state: true },
+    _tpl: { state: true },
     _overview: { state: true },
     _entities: { state: true },
     _backups: { state: true },
@@ -173,6 +177,16 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     }
   }
 
+  async _loadDead() {
+    try {
+      this._dead = await this._ws("dead_entities");
+    } catch (err) {
+      this._dead = { items: [], disabled: [], bytes: 0 };
+    }
+    const ids = new Set(this._dead.items.filter((i) => i.selectable).map((i) => i.entity_id));
+    this._deadSel = new Set([...(this._deadSel || [])].filter((id) => ids.has(id)));
+  }
+
   async _loadBackups() {
     try {
       this._backups = await this._ws("backups");
@@ -185,7 +199,10 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     if ((tab === "database" || tab === "settings") && !this._entities) this._loadEntities();
     if (tab === "backups") this._loadBackups();
     if (tab === "database" || tab === "backups") this._loadHealth();
-    if (tab === "database") this._loadUnused();
+    if (tab === "database") {
+      this._loadUnused();
+      this._loadDead();
+    }
   }
 
   _setTab(tab, pushHash = true) {
@@ -229,6 +246,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       const select = {};
       if (extra.statistic_ids) select.statistic_ids = extra.statistic_ids;
       if (extra.event_types) select.event_types = extra.event_types;
+      if (extra.entity_ids) select.entity_ids = extra.entity_ids;
       preview = await this._ws("preview", { targets, ...select });
     } catch (err) {
       this._showToast(this.t("error", { msg: err.message }));
@@ -248,6 +266,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       else if (target === "unused_statistics") {
         items.push(`${this.t("unused_title")}: ${p.items.length} · ${bytes(p.bytes, this.lang)}`);
         if (p.switch_off) items.push(this.t("unused_switch_off_note", { n: p.switch_off }));
+      } else if (target === "dead") {
+        p.items.forEach((i) => items.push(`${i.name} · ${bytes(i.bytes, this.lang)}`));
+        items.push(this.t("dead_confirm_note"));
       } else if (target === "events") {
         p.items.forEach((e) => items.push(`${e.event_type}: ${this.t("events_rows", { n: number(e.rows, this.lang) })} · ${bytes(e.est_bytes || 0, this.lang)}`));
         if (p.items.some((e) => e.logbook)) items.push(this.t("events_logbook_note"));
@@ -289,6 +310,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       await this._loadOverview();
       if (this._entities) await this._loadEntities();
       if (this._unused) await this._loadUnused();
+      if (this._dead) await this._loadDead();
       if (this._tab === "backups") await this._loadBackups();
     } catch (err) {
       this._showToast(this.t("error", { msg: err.message }));

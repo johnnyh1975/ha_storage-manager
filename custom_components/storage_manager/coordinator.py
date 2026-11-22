@@ -14,7 +14,7 @@ import logging
 import time
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import (
@@ -32,7 +32,18 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import advisor, database, disk, files, health, logs, recorder_config, repack, safety
+from . import (
+    advisor,
+    database,
+    disk,
+    files,
+    health,
+    logs,
+    recorder_config,
+    repack,
+    safety,
+    template_builder,
+)
 from . import backups as backup_mod
 from . import usage as usage_mod
 from .const import (
@@ -76,9 +87,11 @@ ALL_CLEAN_TARGETS = (
     "docker",
     "unused_statistics",
     "events",
+    "dead",
 )
 # targets that delete rows from the database and run the safety chain first
-DB_DELETE_TARGETS = ("orphans", "statistics", "unused_statistics", "events", "purge")
+DB_DELETE_TARGETS = ("orphans", "statistics", "unused_statistics", "events", "dead", "purge")
+DEAD_DAYS = 7  # unavailable for this long without a real value counts as dead
 STALE_IMPORT_DAYS = 90  # imported statistics without a new row for this long
 # event types the logbook shows: deleting them removes logbook entries
 LOGBOOK_EVENT_TYPES = frozenset(
@@ -138,7 +151,12 @@ def _build_inbox(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(singles, key=lambda a: (not a.get("conflict"), -a["saving"]))
 
 
-CHANGE_ACTIONS = ("purge_entities", "recorder_changes", "auto_rules", "statistics_on")
+CHANGE_ACTIONS = (
+    "purge_entities",
+    "recorder_changes",
+    "auto_rules",
+    "statistics_on",
+)
 
 
 def _changes_database(entry: dict[str, Any]) -> bool:
@@ -204,6 +222,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._potential_key: tuple[Any, ...] | None = None
         self._unused: dict[str, int] | None = None
         self._unused_key: tuple[Any, ...] | None = None
+        self._dead: dict[str, int] | None = None
+        self._dead_key: tuple[Any, ...] | None = None
         self._analysis_control: database.AnalysisControl | None = None
         self.analysis_progress: dict[str, Any] | None = None
         self._progress_sent = 0.0
@@ -365,6 +385,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
             "heavy_writers": self.store.data.heavy_writers,
             "unused_statistics": await self._async_unused_summary(),
+            "dead_entities": await self._async_dead_summary(),
             "system_log": self.system_log_events(),
             "freed_total": self.store.data.freed_total,
             "busy": self.busy,
@@ -860,6 +881,189 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     # ------------------------------------------------------------------
+    # dead entities
+    # ------------------------------------------------------------------
+
+    async def async_dead_entities(self) -> dict[str, Any]:
+        """Entities that have shown no real value for DEAD_DAYS.
+
+        - gone: the integration loaded but no longer provides the entity;
+          Home Assistant keeps a restored placeholder
+        - unavailable: still provided, but unavailable without a real value
+          (in the database) for DEAD_DAYS
+        - yaml: the same for entities without a unique_id, which can only be
+          removed from the configuration
+        Entities of integrations that are not loaded are left out: they come
+        back once the integration starts again. Entities that something
+        still uses are listed with what uses them and cannot be selected.
+        """
+        hass = self.hass
+        ent_reg = er.async_get(hass)
+        now = time.time()
+        cutoff = now - DEAD_DAYS * 86400
+        candidates: dict[str, dict[str, Any]] = {}
+        for state in hass.states.async_all():
+            if state.state != "unavailable":
+                continue
+            entity_id = state.entity_id
+            entry = ent_reg.async_get(entity_id)
+            if entry is not None:
+                if entry.platform == DOMAIN or entry.disabled_by is not None:
+                    continue
+                if entry.config_entry_id is not None:
+                    config_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
+                    if config_entry is None or config_entry.state is not ConfigEntryState.LOADED:
+                        continue
+            gone = bool(state.attributes.get("restored"))
+            candidates[entity_id] = {
+                "entity_id": entity_id,
+                "name": state.name or entity_id,
+                "kind": "gone" if gone else ("unavailable" if entry is not None else "yaml"),
+                "platform": entry.platform if entry is not None else None,
+                "changed": state.last_changed.timestamp(),
+            }
+        if not candidates:
+            return {"items": [], "bytes": 0, "disabled": self._disabled_dead()}
+        try:
+            values = await database.async_last_values(hass, list(candidates))
+        except Exception:  # noqa: BLE001 - without the database only the state counts
+            _LOGGER.debug("Last values not available", exc_info=True)
+            values = {}
+        found: dict[str, dict[str, Any]] = {}
+        for entity_id, item in candidates.items():
+            recorded = values.get(entity_id)
+            if recorded is None:
+                # not recorded: only the state itself tells
+                since = item["changed"]
+            elif recorded["last"] is not None:
+                since = recorded["last"]
+            else:
+                # no real value as far back as the database goes
+                since = min(item["changed"], recorded["oldest"] or item["changed"])
+                item["no_value_recorded"] = True
+            if item["kind"] != "gone" and since > cutoff:
+                continue
+            item["since"] = since
+            found[entity_id] = item
+        analysis = self.store.data.analysis or {}
+        entities = analysis.get("entities") or {}
+        stats = analysis.get("statistics") or {}
+        usage = await self.async_usage(set(found)) if found else {}
+        for entity_id, item in found.items():
+            info = entities.get(entity_id) or {}
+            item["bytes"] = int(info.get("est_bytes") or 0) + int(
+                (stats.get(entity_id) or {}).get("est_bytes") or 0
+            )
+            used = usage.get(entity_id)
+            item["used"] = used.as_dict() if used is not None and used.used else None
+            item["dynamic"] = bool(used and used.dynamic)
+            item["selectable"] = item["kind"] != "yaml" and item["used"] is None
+            item.pop("changed", None)
+        items = sorted(found.values(), key=lambda i: (not i["selectable"], -i["bytes"]))
+        return {
+            "items": items,
+            "bytes": sum(i["bytes"] for i in items if i["selectable"]),
+            "disabled": self._disabled_dead(),
+        }
+
+    def _disabled_dead(self) -> list[dict[str, Any]]:
+        """Entities Storage Manager disabled that are still disabled by it."""
+        ent_reg = er.async_get(self.hass)
+        out = []
+        for entity_id, when in sorted(self.store.data.disabled_dead.items()):
+            entry = ent_reg.async_get(entity_id)
+            if entry is None or entry.disabled_by is not er.RegistryEntryDisabler.USER:
+                continue
+            out.append(
+                {
+                    "entity_id": entity_id,
+                    "name": entry.name or entry.original_name or entity_id,
+                    "at": when,
+                }
+            )
+        return out
+
+    async def _dead_selection(self, entity_ids: list[str] | None) -> list[dict[str, Any]]:
+        """The given entities, as far as the check still lists them as selectable.
+
+        Nothing without an explicit selection: dead entities are never
+        disabled or deleted in bulk by a target alone.
+        """
+        if not entity_ids:
+            return []
+        wanted = set(entity_ids)
+        return [
+            i
+            for i in (await self.async_dead_entities())["items"]
+            if i["selectable"] and i["entity_id"] in wanted
+        ]
+
+    def _disable(self, entity_ids: list[str]) -> list[str]:
+        """Disable entities in the registry and remember that we did."""
+        ent_reg = er.async_get(self.hass)
+        done = []
+        now = dt_util.utcnow().isoformat()
+        for entity_id in entity_ids:
+            entry = ent_reg.async_get(entity_id)
+            if entry is None or entry.disabled_by is not None:
+                continue
+            ent_reg.async_update_entity(entity_id, disabled_by=er.RegistryEntryDisabler.USER)
+            self.store.data.disabled_dead[entity_id] = now
+            done.append(entity_id)
+        self.store.schedule_save()
+        self._dead_key = None
+        return done
+
+    async def async_disable_dead(self, entity_ids: list[str]) -> dict[str, Any]:
+        """Disable dead entities (only those the check still lists as selectable)."""
+        if not entity_ids:
+            raise HomeAssistantError("No entities given")
+        items = await self._dead_selection(entity_ids)
+        done = self._disable([i["entity_id"] for i in items])
+        self.store.log("disable_dead", 0, {"entities": done[:LOG_IDS_MAX]})
+        await self.async_refresh()
+        return {"disabled": done, "skipped": sorted(set(entity_ids) - set(done))}
+
+    async def async_enable_dead(self, entity_ids: list[str]) -> dict[str, Any]:
+        """Enable entities again that Storage Manager disabled."""
+        ent_reg = er.async_get(self.hass)
+        data = self.store.data
+        done = []
+        for entity_id in entity_ids:
+            if entity_id not in data.disabled_dead:
+                continue
+            entry = ent_reg.async_get(entity_id)
+            data.disabled_dead.pop(entity_id, None)
+            if entry is None or entry.disabled_by is not er.RegistryEntryDisabler.USER:
+                continue
+            ent_reg.async_update_entity(entity_id, disabled_by=None)
+            done.append(entity_id)
+        self.store.schedule_save()
+        self._dead_key = None
+        self.store.log("enable_dead", 0, {"entities": done[:LOG_IDS_MAX]})
+        await self.async_refresh()
+        return {"enabled": done}
+
+    async def _async_dead_summary(self) -> dict[str, int] | None:
+        """Count and size of dead entities for the overview (cached)."""
+        analysis = self.store.data.analysis
+        key = (
+            (analysis or {}).get("generated_at"),
+            len(self.store.data.disabled_dead),
+            int(time.time() // USAGE_MAX_AGE),
+        )
+        if key != self._dead_key:
+            try:
+                dead = await self.async_dead_entities()
+            except Exception:  # noqa: BLE001 - the overview must not fail on it
+                _LOGGER.debug("Dead entities not available", exc_info=True)
+                return None
+            items = [i for i in dead["items"] if i["selectable"]]
+            self._dead = {"count": len(items), "bytes": dead["bytes"]}
+            self._dead_key = key
+        return self._dead
+
+    # ------------------------------------------------------------------
     # orphans
     # ------------------------------------------------------------------
 
@@ -1105,6 +1309,44 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "advice": advice,
             "info": info,
             "keep_days": get_instance(self.hass).keep_days,
+        }
+
+    async def async_attribute_template(
+        self, entity_id: str, attributes: list[str], language: str | None = None
+    ) -> dict[str, Any]:
+        """YAML for a template entity that records only what is needed.
+
+        Also lists what reads the original's history and would have to use
+        the new entity instead; automations only need the current state and
+        can keep using the original.
+        """
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            raise HomeAssistantError(f"Unknown entity {entity_id}")
+        unknown = [a for a in attributes if a not in state.attributes]
+        if unknown:
+            raise HomeAssistantError(f"Unknown attributes: {', '.join(unknown)}")
+        result = template_builder.build(
+            entity_id,
+            name=state.name or entity_id,
+            attributes=dict(state.attributes),
+            extra=attributes,
+            language=language or self.hass.config.language or "en",
+        )
+        usage = (await self.async_usage({entity_id})).get(entity_id)
+        switch: list[dict[str, Any]] = []
+        if usage is not None:
+            switch += [{"type": "dashboard", **d} for d in usage.dashboards]
+            switch += [{"type": "statistics_card", "dashboard": d} for d in usage.statistics_cards]
+            switch += [{"type": "helper", **h} for h in usage.history_readers]
+            if usage.energy:
+                switch.append({"type": "energy"})
+        taken = [e for e in result["entity_ids"] if self.hass.states.get(e) is not None]
+        return {
+            **result,
+            "switch": switch,
+            "taken": taken,
+            "packages": self.packages.available,
         }
 
     async def _async_retention_potential(self) -> dict[str, int] | None:
@@ -1441,6 +1683,17 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "view": "database",
                 }
             )
+        dead = self.data.get("dead_entities")
+        if dead and dead["count"]:
+            recs.append(
+                {
+                    "id": "dead_entities",
+                    "bytes": dead["bytes"],
+                    "count": dead["count"],
+                    "action": "navigate",
+                    "view": "database",
+                }
+            )
         system_log = self.data.get("system_log")
         if system_log:
             recs.append(
@@ -1501,6 +1754,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         statistic_ids: list[str] | None = None,
         event_types: list[str] | None = None,
+        entity_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """What a cleanup would do, without doing it."""
         await self.async_refresh()
@@ -1520,6 +1774,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "rows": sum(int(i["rows"]) for i in items),
                 "items": items,
             }
+        if "dead" in targets:
+            items = await self._dead_selection(entity_ids)
+            preview["dead"] = {"bytes": sum(i["bytes"] for i in items), "items": items}
         if "backups" in targets:
             plan = [p for p in self.backup_plan() if p["action"] == "delete_local"]
             preview["backups"] = {
@@ -1761,6 +2018,10 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 estimate += sum(
                                     i["bytes"] for i in await self._unused_selection(statistic_ids)
                                 )
+                            if "dead" in db_targets:
+                                estimate += sum(
+                                    i["bytes"] for i in await self._dead_selection(entity_ids)
+                                )
                             if "events" in db_targets:
                                 estimate += sum(
                                     int(e.get("est_bytes") or 0)
@@ -1783,6 +2044,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._clean_unused_statistics(statistic_ids, results, deleted, errors)
                     if "events" in db_targets:
                         await self._clean_events(event_types, results, deleted)
+                    if "dead" in db_targets:
+                        await self._clean_dead(entity_ids, results, deleted)
                     if db_targets:
                         # a fresh sample for the effect chart and fresh sizes
                         self._schedule_reanalysis()
@@ -1887,7 +2150,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "orphans" in db_targets:
             self._set_busy("orphans")
             orphans = self.orphans()
-            ids = entity_ids or orphans["entities"]
+            ids = orphans["entities"]
+            if entity_ids and "dead" not in db_targets:
+                ids = entity_ids
             await database.async_purge_entities(self.hass, ids, 0)
             results["orphans"] = orphans["entity_bytes"] if not entity_ids else 0
             deleted["entities"] = ids[:LOG_IDS_MAX]
@@ -1942,6 +2207,27 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stats = (self.store.data.analysis or {}).get("statistics") or {}
         for sid in ids:
             stats.pop(sid, None)
+
+    async def _clean_dead(
+        self,
+        entity_ids: list[str] | None,
+        results: dict[str, Any],
+        deleted: dict[str, Any],
+    ) -> None:
+        """Disable dead entities, then delete their history and statistics."""
+        self._set_busy("dead")
+        items = await self._dead_selection(entity_ids)
+        ids = [i["entity_id"] for i in items]
+        self._disable(ids)
+        await database.async_purge_entities(self.hass, ids, 0)
+        await database.async_clear_statistics(self.hass, ids)
+        await database.async_wait_idle(self.hass)
+        results["dead"] = sum(i["bytes"] for i in items)
+        deleted["dead"] = ids[:LOG_IDS_MAX]
+        self._drop_from_analysis(ids)
+        stats = (self.store.data.analysis or {}).get("statistics") or {}
+        for entity_id in ids:
+            stats.pop(entity_id, None)
 
     async def _clean_events(
         self,

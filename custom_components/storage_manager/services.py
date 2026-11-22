@@ -28,9 +28,12 @@ SERVICE_CLEANUP = "cleanup"
 SERVICE_ANALYZE = "analyze_database"
 SERVICE_SET_RETENTION = "set_retention"
 
+# dead entities need an explicit selection: only the panel offers them
+SERVICE_TARGETS = tuple(t for t in ALL_CLEAN_TARGETS if t != "dead")
+
 CLEANUP_SCHEMA = vol.Schema(
     {
-        vol.Optional("targets"): vol.All(ENSURE_LIST, [vol.In(ALL_CLEAN_TARGETS)]),
+        vol.Optional("targets"): vol.All(ENSURE_LIST, [vol.In(SERVICE_TARGETS)]),
         vol.Optional("dry_run", default=False): cv.boolean,
     }
 )

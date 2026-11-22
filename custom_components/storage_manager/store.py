@@ -72,6 +72,8 @@ class ManagerData:
     heavy_writers: list[dict[str, Any]] | None = None
     # entities whose long-term statistics are switched off (state_class removed)
     stats_off: list[str] = field(default_factory=list)
+    # entities Storage Manager disabled as dead: entity_id -> ISO time
+    disabled_dead: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -121,6 +123,7 @@ class ManagerData:
             baselines_at=float(data.get("baselines_at") or 0),
             heavy_writers=data.get("heavy_writers"),
             stats_off=sorted({str(e) for e in data.get("stats_off") or []}),
+            disabled_dead={str(k): str(v) for k, v in (data.get("disabled_dead") or {}).items()},
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -148,6 +151,7 @@ class ManagerData:
             "baselines_at": self.baselines_at,
             "heavy_writers": self.heavy_writers,
             "stats_off": self.stats_off,
+            "disabled_dead": self.disabled_dead,
         }
 
 

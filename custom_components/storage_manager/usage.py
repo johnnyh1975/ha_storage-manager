@@ -122,6 +122,19 @@ class EntityUsage:
         }
 
     @property
+    def used(self) -> bool:
+        """Referenced anywhere at all (domain-wide templates do not count)."""
+        return bool(
+            self.automations
+            or self.scripts
+            or self.helpers
+            or self.dashboards
+            or self.energy
+            or self.statistics_cards
+            or self.yaml
+        )
+
+    @property
     def needs_statistics(self) -> bool:
         """Long-term statistics of this entity are shown or used somewhere."""
         return self.energy or bool(self.statistics_cards)

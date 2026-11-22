@@ -705,6 +705,47 @@ def _rows_older(hass: HomeAssistant, entity_ids: list[str], before: float) -> in
     return total
 
 
+NO_VALUE_STATES = ("unavailable", "unknown")
+
+
+def _last_values(hass: HomeAssistant, entity_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Last recorded real value and oldest row per entity (blocking).
+
+    ``last`` is the newest row with a real state: not unavailable/unknown and
+    not the empty row written when an entity is removed or disabled (None if
+    every recorded row is one of them), ``oldest`` the oldest row at all.
+    """
+    query = text(
+        "SELECT m.entity_id, "
+        "MAX(CASE WHEN s.state IS NULL OR s.state IN :none THEN NULL "
+        "ELSE s.last_updated_ts END), "
+        "MIN(s.last_updated_ts) "
+        "FROM states s JOIN states_meta m ON m.metadata_id = s.metadata_id "
+        "WHERE m.entity_id IN :ids GROUP BY m.entity_id"
+    ).bindparams(bindparam("ids", expanding=True), bindparam("none", expanding=True))
+    found: dict[str, dict[str, Any]] = {}
+    with session_scope(hass=hass, read_only=True) as session:
+        for i in range(0, len(entity_ids), _IDS_PER_QUERY):
+            chunk = entity_ids[i : i + _IDS_PER_QUERY]
+            for entity_id, last, oldest in session.execute(
+                query, {"ids": chunk, "none": list(NO_VALUE_STATES)}
+            ):
+                found[str(entity_id)] = {
+                    "last": float(last) if last is not None else None,
+                    "oldest": float(oldest) if oldest is not None else None,
+                }
+    return found
+
+
+async def async_last_values(
+    hass: HomeAssistant, entity_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """When each entity last had a real value in the database."""
+    if not entity_ids:
+        return {}
+    return await get_instance(hass).async_add_executor_job(_last_values, hass, sorted(entity_ids))
+
+
 async def async_purge_entities(
     hass: HomeAssistant, entity_ids: list[str], keep_days: int, *, wait: bool = True
 ) -> int:

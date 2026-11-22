@@ -162,6 +162,25 @@ async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         msg["targets"],
         statistic_ids=msg.get("statistic_ids"),
         event_types=msg.get("event_types"),
+        entity_ids=msg.get("entity_ids"),
+    )
+
+
+async def _dead_entities(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_dead_entities()
+
+
+async def _disable_dead(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_disable_dead(msg["entity_ids"])
+
+
+async def _enable_dead(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_enable_dead(msg["entity_ids"])
+
+
+async def _attribute_template(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_attribute_template(
+        msg["entity_id"], msg.get("attributes") or [], msg.get("language")
     )
 
 
@@ -333,8 +352,38 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Required("targets"): [vol.In(ALL_CLEAN_TARGETS)],
             vol.Optional("statistic_ids"): [str],
             vol.Optional("event_types"): [str],
+            vol.Optional("entity_ids"): [ENTITY_ID],
         },
         _preview,
+    )
+    _register(hass, {"type": f"{DOMAIN}/dead_entities"}, _dead_entities)
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/disable_dead",
+            vol.Required("entity_ids"): vol.All([ENTITY_ID], vol.Length(min=1)),
+        },
+        _disable_dead,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/enable_dead",
+            vol.Required("entity_ids"): vol.All([ENTITY_ID], vol.Length(min=1)),
+        },
+        _enable_dead,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/attribute_template",
+            vol.Required("entity_id"): ENTITY_ID,
+            vol.Optional("attributes"): vol.All(
+                [vol.All(str, vol.Length(min=1, max=255))], vol.Length(max=10)
+            ),
+            vol.Optional("language"): vol.All(str, vol.Length(max=20)),
+        },
+        _attribute_template,
     )
     _register(hass, {"type": f"{DOMAIN}/unused_statistics"}, _unused_statistics)
     _register(

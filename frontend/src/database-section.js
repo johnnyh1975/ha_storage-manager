@@ -168,12 +168,126 @@ export const DatabaseSection = (Base) =>
           ? html`<div class="card"><div class="center"><span class="spinner"></span></div></div>`
           : !ent.analysis_at
           ? html`<div class="card"><p class="muted">${t("analysis_needed")}</p></div>`
-          : html`${this._renderInbox(ent)} ${this._renderUnused()} ${this._renderExplorer(ent)}`}
+          : html`${this._renderInbox(ent)} ${this._renderDead()} ${this._renderUnused()} ${this._renderExplorer(ent)}`}
 
         ${this._healthCard("database")}
         ${this._renderEvents(ent)}
         ${this._renderDetail()}
       `;
+    }
+
+    // ------------------------------------------------------ dead entities
+
+    _renderDead() {
+      const t = this.t;
+      const d = this._dead;
+      if (!d || (!d.items.length && !d.disabled.length)) return nothing;
+      const sel = this._deadSel || new Set();
+      const selectable = d.items.filter((i) => i.selectable);
+      const others = d.items.filter((i) => !i.selectable);
+      const busy = !!this._working;
+      const chosen = selectable.filter((i) => sel.has(i.entity_id));
+      const toggle = (id, on) => {
+        const next = new Set(sel);
+        if (on) next.add(id);
+        else next.delete(id);
+        this._deadSel = next;
+      };
+      const line = (i) => html`<span class="muted small">${i.entity_id} · ${t(`dead_kind_${i.kind}`)}
+        · ${i.no_value_recorded ? t("dead_never", { date: dateTime(i.since, this.lang) }) : t("dead_since", { date: dateTime(i.since, this.lang) })}
+        ${i.bytes ? ` · ${bytes(i.bytes, this.lang)}` : ""}</span>`;
+      return html`<div class="card">
+        <h2 class="wrap">${t("dead_title")}<span class="spacer"></span>
+          ${d.bytes ? html`<span class="muted small">${bytes(d.bytes, this.lang)}</span>` : nothing}</h2>
+        <p class="muted small" style="margin-top:0">${t("dead_hint")}</p>
+        ${selectable.length
+          ? html`<div class="dead-actions">
+              <button class="linklike" ?disabled=${busy} @click=${() =>
+                (this._deadSel = chosen.length === selectable.length ? new Set() : new Set(selectable.map((i) => i.entity_id)))}>
+                ${t(chosen.length === selectable.length ? "dead_select_none" : "dead_select_all")}</button>
+              <span class="spacer"></span>
+              <button class="btn" ?disabled=${busy || !chosen.length} @click=${() => this._confirmDisableDead(chosen)}>
+                ${t("dead_disable", { n: chosen.length })}</button>
+              <button class="btn danger" ?disabled=${busy || !chosen.length}
+                @click=${() => this._previewAndClean(["dead"], { entity_ids: chosen.map((i) => i.entity_id) })}>
+                ${t("dead_disable_delete")}</button>
+            </div>
+            <ul class="dead-list">${selectable.map(
+              (i) => html`<li><label class="check-line"><input type="checkbox" .checked=${live(sel.has(i.entity_id))}
+                ?disabled=${busy} @change=${(e) => toggle(i.entity_id, e.target.checked)} />
+                <span>${i.name}<br />${line(i)}</span></label></li>`
+            )}</ul>`
+          : nothing}
+        ${others.length
+          ? html`<h4>${t("dead_blocked_title", { n: others.length })}</h4>
+              <p class="muted small" style="margin-top:0">${t("dead_blocked_hint")}</p>
+              <ul class="group-members">${others.map(
+                (i) => html`<li><button class="linklike" @click=${() => this._openDetail(i.entity_id)}>${i.name}</button><br />${line(i)}
+                  <div class="small">${i.kind === "yaml" ? t("dead_yaml_hint") : t("dead_used", { list: this._usageSummary(i.used) })}</div></li>`
+              )}</ul>`
+          : nothing}
+        ${d.disabled.length
+          ? html`<h4>${t("dead_disabled_title", { n: d.disabled.length })}</h4>
+              <ul class="group-members">${d.disabled.map(
+                (e) => html`<li>${e.name} <span class="muted small">${e.entity_id} · ${dateTime(e.at, this.lang)}</span>
+                  <button class="linklike" ?disabled=${busy} @click=${() => this._enableDead([e.entity_id])}>${t("dead_enable")}</button></li>`
+              )}</ul>
+              <p class="muted small">${t("dead_enable_hint")}</p>`
+          : nothing}
+      </div>`;
+    }
+
+    _usageSummary(used) {
+      const t = this.t;
+      if (!used) return "";
+      const parts = [];
+      const count = (key, n) => n && parts.push(t(key, { n }));
+      count("dead_used_automations", (used.automations || []).length);
+      count("dead_used_scripts", (used.scripts || []).length);
+      count("dead_used_helpers", (used.helpers || []).length);
+      count("dead_used_dashboards", (used.dashboards || []).length + (used.statistics_cards || []).length);
+      count("dead_used_yaml", (used.yaml || []).length);
+      if (used.energy) parts.push(t("dead_used_energy"));
+      return parts.join(", ");
+    }
+
+    _confirmDisableDead(items) {
+      const t = this.t;
+      this._dialog = {
+        title: t("dead_disable_title"),
+        body: html`<p>${t("dead_disable_body")}</p>
+          <ul>${items.slice(0, 30).map((i) => html`<li>${i.name} <span class="muted small">${i.entity_id}</span></li>`)}
+            ${items.length > 30 ? html`<li class="muted">${t("more_n", { n: items.length - 30 })}</li>` : nothing}</ul>`,
+        confirm: t("dead_disable", { n: items.length }),
+        action: () => this._disableDead(items.map((i) => i.entity_id)),
+      };
+    }
+
+    async _disableDead(entityIds) {
+      this._working = "disable_dead";
+      try {
+        const res = await this._ws("disable_dead", { entity_ids: entityIds });
+        this._showToast(this.t("dead_disabled_done", { n: res.disabled.length }));
+        this._deadSel = new Set();
+        await Promise.all([this._loadDead(), this._loadOverview()]);
+      } catch (err) {
+        this._showToast(this.t("error", { msg: err.message }));
+      } finally {
+        this._working = null;
+      }
+    }
+
+    async _enableDead(entityIds) {
+      this._working = "enable_dead";
+      try {
+        const res = await this._ws("enable_dead", { entity_ids: entityIds });
+        this._showToast(this.t("dead_enabled_done", { n: res.enabled.length }));
+        await Promise.all([this._loadDead(), this._loadOverview()]);
+      } catch (err) {
+        this._showToast(this.t("error", { msg: err.message }));
+      } finally {
+        this._working = null;
+      }
     }
 
     // ------------------------------------------------ unused statistics
@@ -991,9 +1105,91 @@ export const DatabaseSection = (Base) =>
             </div>`
           : nothing}
 
+        ${this._renderTemplate(d, advice)}
+
         <h4>${t("col_retention")}</h4>
         ${row ? this._tierSelect(row, (v) => this._setValue([row], v)) : nothing}
         <p class="small">${t(`impact_${value}`, { days: TIER_DAYS[value] ?? d.keep_days })}</p>
       `;
+    }
+
+    // ------------------------------------------------ attribute template
+
+    _templateFits(d, advice) {
+      if (["attributes", "attribute_updates"].includes(advice?.reason)) return true;
+      if ((d.drivers || []).some((a) => a.driver)) return true;
+      return d.sample_rows >= 20 && d.sample_attr_only / d.sample_rows >= 0.5;
+    }
+
+    _renderTemplate(d, advice) {
+      const t = this.t;
+      if (!this._templateFits(d, advice)) return nothing;
+      const state = this.hass.states[d.entity_id];
+      if (!state) return nothing;
+      const tpl = this._tpl?.entity_id === d.entity_id ? this._tpl : { entity_id: d.entity_id, attrs: new Set() };
+      const names = Object.keys(state.attributes).filter(
+        (n) => !["friendly_name", "unit_of_measurement", "device_class", "state_class", "icon", "entity_picture", "attribution", "supported_features"].includes(n)
+      );
+      const toggle = (name, on) => {
+        const attrs = new Set(tpl.attrs);
+        if (on) attrs.add(name);
+        else attrs.delete(name);
+        this._tpl = { ...tpl, attrs, result: undefined };
+      };
+      const r = tpl.result;
+      return html`<h4>${t("tpl_title")}</h4>
+        <p class="small" style="margin-top:0">${t("tpl_hint")}</p>
+        ${names.length
+          ? html`<details class="tpl-attrs"><summary class="small">${t("tpl_attrs", { n: tpl.attrs.size })}</summary>
+              ${names.slice(0, 40).map((n) => html`<label class="check-line small"><input type="checkbox"
+                .checked=${live(tpl.attrs.has(n))} ?disabled=${!tpl.attrs.has(n) && tpl.attrs.size >= 10}
+                @change=${(e) => toggle(n, e.target.checked)} /><code>${n}</code></label>`)}
+            </details>`
+          : nothing}
+        <button class="btn" ?disabled=${tpl.loading} @click=${() => this._buildTemplate(tpl)}>${t("tpl_build")}</button>
+        ${r
+          ? html`<div class="tpl-out">
+              <pre>${r.yaml}</pre>
+              <button class="btn" @click=${() => this._copy(r.yaml)}>${t("tpl_copy")}</button>
+              <ol class="small tpl-steps">
+                <li>${t(r.packages ? "tpl_step_add_packages" : "tpl_step_add")}</li>
+                <li>${t("tpl_step_reload")}</li>
+                <li>${t("tpl_step_new", { ids: r.entity_ids.join(", ") })}</li>
+                ${r.switch.length
+                  ? html`<li>${t("tpl_step_switch")}<ul>${r.switch.map((s) => html`<li>${this._switchText(s)}</li>`)}</ul></li>`
+                  : nothing}
+                <li>${t("tpl_step_drop")}</li>
+              </ol>
+              ${r.taken.length ? html`<p class="small warn-text">${t("tpl_taken", { ids: r.taken.join(", ") })}</p>` : nothing}
+            </div>`
+          : nothing}`;
+    }
+
+    _switchText(s) {
+      const t = this.t;
+      if (s.type === "dashboard") return t("detail_dashboard", { title: s.dashboard, card: s.card, days: s.days });
+      if (s.type === "statistics_card") return t("tpl_switch_statistics", { title: s.dashboard });
+      if (s.type === "helper") return t("detail_helper", { title: s.title, domain: s.domain });
+      return t("note_energy");
+    }
+
+    async _buildTemplate(tpl) {
+      this._tpl = { ...tpl, loading: true };
+      try {
+        const result = await this._ws("attribute_template", { entity_id: tpl.entity_id, attributes: [...tpl.attrs], language: this.hass.language });
+        this._tpl = { ...tpl, loading: false, result };
+      } catch (err) {
+        this._tpl = { ...tpl, loading: false };
+        this._showToast(this.t("error", { msg: err.message }));
+      }
+    }
+
+    async _copy(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this._showToast(this.t("tpl_copied"));
+      } catch (err) {
+        this._showToast(this.t("tpl_copy_failed"));
+      }
     }
   };

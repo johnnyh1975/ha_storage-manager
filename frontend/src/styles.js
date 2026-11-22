@@ -528,5 +528,17 @@ export const styles = css`
     .list-row.kind-row > div:nth-child(2) { display: none; }
     .list-row.kind-row select { width: 100%; }
   }
+  .dead-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  ul.dead-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; }
+  ul.dead-list .check-line { margin-top: 8px; }
+  .tpl-attrs { margin: 4px 0 10px; }
+  .tpl-attrs .check-line { margin-top: 6px; }
+  .tpl-out pre {
+    background: var(--secondary-background-color, #f5f5f5); padding: 10px; border-radius: 8px;
+    overflow: auto; font-size: 12px; line-height: 1.4; max-height: 320px; white-space: pre;
+  }
+  .tpl-steps { padding-left: 20px; }
+  .tpl-steps li { margin: 4px 0; }
+  .warn-text { color: var(--warning-color, #c77700); }
   ul.group-members { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
 `;
