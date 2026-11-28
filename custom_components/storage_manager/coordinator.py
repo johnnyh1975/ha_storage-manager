@@ -948,10 +948,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     # ------------------------------------------------------------------
-    # dead entities
-    # ------------------------------------------------------------------
-
-    # ------------------------------------------------------------------
     # inspector and time window
     # ------------------------------------------------------------------
 
@@ -1062,18 +1058,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return explorer.browse(result, path)
         except KeyError as err:
             raise HomeAssistantError("folder_unknown") from err
-
-    # ------------------------------------------------------------------
-    # long-term statistics by age
-    # ------------------------------------------------------------------
-
-    # ------------------------------------------------------------------
-    # targeted backup and undo
-    # ------------------------------------------------------------------
-
-    # ------------------------------------------------------------------
-    # orphans
-    # ------------------------------------------------------------------
 
     def known_entities(self) -> set[str]:
         known = set(self.hass.states.async_entity_ids())

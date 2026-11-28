@@ -30,6 +30,7 @@ import json
 import logging
 from pathlib import Path
 import secrets
+from stat import S_ISREG
 import time
 from typing import Any
 
@@ -197,17 +198,20 @@ def prune(
     folder = undo_dir(config_dir)
     if not folder.is_dir():
         return []
-    files = sorted(
-        (p for p in folder.glob(f"*{SUFFIX}") if p.is_file() and not p.is_symlink()),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    files: list[tuple[Path, float, int]] = []
+    for path in folder.glob(f"*{SUFFIX}"):
+        try:
+            info = path.lstat()  # one call per file; a link is not a regular file
+        except OSError:
+            continue
+        if S_ISREG(info.st_mode):
+            files.append((path, info.st_mtime, info.st_size))
+    files.sort(key=lambda item: item[1], reverse=True)
     removed: list[str] = []
     limit = time.time() - keep_days * 86400
     total = 0
-    for path in files:
-        size = path.stat().st_size
-        if path.stat().st_mtime < limit or total + size > max_bytes:
+    for path, mtime, size in files:
+        if mtime < limit or total + size > max_bytes:
             path.unlink(missing_ok=True)
             removed.append(path.name[: -len(SUFFIX)])
             continue

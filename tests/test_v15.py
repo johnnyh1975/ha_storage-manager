@@ -6,6 +6,8 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+import os
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -18,7 +20,7 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
     async_wait_recording_done,
 )
 
-from custom_components.storage_manager import cleanup, database, repairs, safety
+from custom_components.storage_manager import cleanup, database, repairs, safety, undo
 from custom_components.storage_manager import coordinator as coord_mod
 from custom_components.storage_manager.const import DOMAIN, ISSUE_SCHEMA
 
@@ -569,3 +571,33 @@ async def test_a_database_add_on_counts_as_this_disk(hass: HomeAssistant) -> Non
     ):
         await safety.async_create_backup(hass, "core_mariadb")
     assert manager.async_create_backup.await_args.kwargs["include_addons"] == ["core_mariadb"]
+
+
+def test_prune_reads_each_file_once(tmp_path, monkeypatch) -> None:
+    """prune looks at each undo file once (one lstat), not up to five times."""
+    folder = undo.undo_dir(str(tmp_path))
+    folder.mkdir(parents=True)
+    now = time.time()
+    for name, age in (("1-a", 20), ("2-b", 1)):
+        p = folder / f"{name}{undo.SUFFIX}"
+        p.write_bytes(b"x")
+        os.utime(p, (now - age * 86400, now - age * 86400))
+    link = folder / f"3-link{undo.SUFFIX}"
+    link.symlink_to(folder / f"2-b{undo.SUFFIX}")
+    calls: dict[str, int] = {}
+    real_stat, real_lstat = os.stat, os.lstat
+
+    def count(real):
+        def wrapper(path, *args, **kwargs):
+            name = os.fspath(path)
+            if name.endswith(undo.SUFFIX):
+                calls[name] = calls.get(name, 0) + 1
+            return real(path, *args, **kwargs)
+
+        return wrapper
+
+    monkeypatch.setattr(os, "stat", count(real_stat))
+    monkeypatch.setattr(os, "lstat", count(real_lstat))
+    assert undo.prune(str(tmp_path), keep_days=14) == ["1-a"]
+    assert calls and max(calls.values()) == 1
+    assert link.is_symlink() and (folder / f"2-b{undo.SUFFIX}").exists()
