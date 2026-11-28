@@ -245,6 +245,52 @@ for (const lang of ["en", "de"]) {
         }
       });
 
+      test("the emergency path leads step by step and asks before deleting without backup", async () => {
+        const { page, panel, errors, close } = await open(lang, viewport, "&emergency=1");
+        try {
+          const card = panel.locator("section.emergency");
+          await card.waitFor();
+          assert.equal(await card.locator("ol.emergency-steps > li").count(), 3, "three steps");
+          await noOverflow(page, "emergency");
+          await page.addScriptTag({ content: AXE });
+          const found = await page.evaluate(async () => {
+            const card = document.querySelector("storage-manager-panel").shadowRoot.querySelector("section.emergency");
+            const result = await window.axe.run(card, { resultTypes: ["violations"], rules: { "color-contrast": { enabled: false } } });
+            return result.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id);
+          });
+          assert.deepEqual(found, [], "axe on the emergency card");
+          const names = await card.locator("button").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") || el.textContent.trim()));
+          assert.equal(new Set(names).size, names.length, `every button has its own name: ${names}`);
+          await card.locator("button.danger").click();
+          await panel.locator(".dialog").waitFor();
+          const typed = await page.evaluate(() => document.querySelector("storage-manager-panel")._dialog.typed);
+          assert.equal(typed, 13, "the number of items is typed in");
+          const confirm = panel.locator(".dialog .actions button.primary");
+          assert.ok(await confirm.isDisabled(), "nothing without typing the number");
+          await panel.locator(".dialog input").fill(String(typed));
+          await confirm.click();
+          await page.waitForTimeout(200);
+          const call = await page.evaluate(() => window.__calls.filter((c) => c.type.endsWith("/clean")).pop());
+          assert.equal(call.emergency, true);
+          assert.deepEqual(call.targets, ["orphans", "events"]);
+          assert.equal(call.entity_ids.length, 12);
+          assert.deepEqual(errors, []);
+        } finally {
+          await close();
+        }
+      });
+
+      test("an unknown recorder schema is shown", async () => {
+        const { page, panel, errors, close } = await open(lang, viewport, "&schema=1");
+        try {
+          await tab(page, panel, "database");
+          assert.ok(await panel.locator(".banner", { hasText: "99" }).count(), "schema banner");
+          assert.deepEqual(errors, []);
+        } finally {
+          await close();
+        }
+      });
+
       test("sections fold, and keep their state", async () => {
         const { page, panel, errors, close } = await open(lang, viewport);
         try {

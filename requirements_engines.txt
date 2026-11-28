@@ -1,0 +1,5 @@
+# Drivers for the test runs against MariaDB and PostgreSQL (see the
+# "engines" job in .github/workflows/validate.yml). Dependabot keeps these current.
+mysqlclient==2.3.2
+psycopg2-binary==2.9.13
+sqlalchemy-utils==0.43.0

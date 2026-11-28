@@ -21,8 +21,9 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.recorder import get_instance, session_scope
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, inspect, make_url, text
 from sqlalchemy.orm import Session
 
 from .recorder_tasks import async_run_on_recorder
@@ -156,6 +157,111 @@ def _dialect(hass: HomeAssistant) -> str:
     if dialect is None:
         return "sqlite"
     return str(getattr(dialect, "value", dialect))
+
+
+def engine(hass: HomeAssistant) -> dict[str, str | None]:
+    """The database product and version: MariaDB and MySQL share a dialect.
+
+    MariaDB counts its versions from 10 on, MySQL is at 8 or 9.
+    """
+    info = getattr(get_instance(hass), "database_engine", None)
+    dialect = _dialect(hass)
+    version = getattr(info, "version", None)
+    name = {"sqlite": "SQLite", "postgresql": "PostgreSQL"}.get(dialect, dialect)
+    if dialect == "mysql":
+        try:
+            name = "MariaDB" if int(str(getattr(version, "major", None))) >= 10 else "MySQL"
+        except TypeError, ValueError:
+            # no version, or one that is not a number: either of the two
+            name = "MariaDB/MySQL"
+    return {"name": name, "version": str(version) if version is not None else None}
+
+
+# the tables and columns Storage Manager's own SQL reads and deletes; a new
+# recorder schema without one of them switches those functions off
+SCHEMA_NEEDS: dict[str, tuple[str, ...]] = {
+    "states": (
+        "state_id",
+        "metadata_id",
+        "attributes_id",
+        "state",
+        "last_updated_ts",
+        "last_changed_ts",
+    ),
+    "states_meta": ("metadata_id", "entity_id"),
+    "state_attributes": ("attributes_id", "shared_attrs"),
+    "statistics": ("id", "metadata_id", "start_ts", "mean", "min", "max", "sum", "state"),
+    "statistics_short_term": ("id", "metadata_id", "start_ts"),
+    "statistics_meta": ("id", "statistic_id", "source"),
+    "events": ("event_id", "event_type_id", "data_id", "time_fired_ts"),
+    "event_types": ("event_type_id", "event_type"),
+    "event_data": ("data_id", "shared_data"),
+}
+
+
+def check_schema(session: Session) -> dict[str, Any]:
+    """Whether the tables and columns Storage Manager uses are there (blocking)."""
+    inspector = inspect(session.connection())
+    tables = set(inspector.get_table_names())
+    missing: list[str] = []
+    for table, columns in SCHEMA_NEEDS.items():
+        if table not in tables:
+            missing.append(table)
+            continue
+        have = {str(c["name"]) for c in inspector.get_columns(table)}
+        missing += [f"{table}.{c}" for c in columns if c not in have]
+    version = None
+    if "schema_changes" in tables:
+        version = session.execute(text("SELECT MAX(schema_version) FROM schema_changes")).scalar()
+    return {
+        "ok": not missing,
+        "missing": missing,
+        "version": int(version) if version is not None else None,
+        "checked_at": time.time(),
+    }
+
+
+async def async_check_schema(hass: HomeAssistant) -> dict[str, Any]:
+    """The schema check in the recorder's executor, once the recorder is ready."""
+    await get_instance(hass).async_db_ready
+    result: dict[str, Any] = await async_read(hass, check_schema)
+    return result
+
+
+LOCAL_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1"})
+
+
+def _db_host(hass: HomeAssistant) -> str:
+    try:
+        return str(make_url(str(get_instance(hass).db_url or "")).host or "")
+    except Exception:  # noqa: BLE001 - an odd URL: treat it as local
+        return ""
+
+
+def database_addon(hass: HomeAssistant) -> str | None:
+    """The add-on that runs the database on this machine (MariaDB add-on), if any.
+
+    Add-ons answer under a host name of one label (``core-mariadb``); their
+    data lies on this disk, and only a backup that includes them holds the
+    database.
+    """
+    if _dialect(hass) == "sqlite" or not is_hassio(hass):
+        return None
+    host = _db_host(hass)
+    if host in LOCAL_HOSTS or "." in host or ":" in host:
+        return None
+    return host.replace("-", "_")
+
+
+def on_server(hass: HomeAssistant) -> bool:
+    """A database on another machine: deletions need room there, not on this disk.
+
+    A local socket, localhost or an add-on of this machine count as this disk
+    (when unsure, this disk: its space is then checked, which only stops early).
+    """
+    if _dialect(hass) == "sqlite":
+        return False
+    return _db_host(hass) not in LOCAL_HOSTS and database_addon(hass) is None
 
 
 def sqlite_path(hass: HomeAssistant) -> Path | None:

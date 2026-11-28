@@ -46,6 +46,103 @@ jobs:
           path: coverage.xml
           retention-days: 30
 
+  engines:
+    # the raw SQL of the analysis, the cleanups and undo, against the
+    # databases Home Assistant supports besides SQLite
+    name: Test Suite on ${{ matrix.engine }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: MariaDB 10.11
+            dburl: "mysql://ha:ha@127.0.0.1:3306/sm_test?charset=utf8mb4"
+          - engine: PostgreSQL 16
+            dburl: "postgresql://ha:ha@127.0.0.1:5432/sm_test"
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: ha
+          MARIADB_USER: ha
+          MARIADB_PASSWORD: ha
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ha
+          POSTGRES_PASSWORD: ha
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ha" --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install the MariaDB client library (for the mysqlclient driver)
+        run: sudo apt-get update && sudo apt-get install -y libmariadb-dev pkg-config
+      - name: Let the test user create databases (MariaDB)
+        if: startsWith(matrix.dburl, 'mysql')
+        run: |
+          docker exec ${{ job.services.mariadb.id }} \
+            mariadb -uroot -pha -e "GRANT ALL ON *.* TO 'ha'@'%'; FLUSH PRIVILEGES;"
+      - name: Install uv
+        run: python -m pip install "uv==0.12.18"
+      - name: Install pinned test tooling and drivers
+        run: uv pip install --system -r requirements_test.txt -r requirements_engines.txt
+      - name: Run full test suite
+        run: python -m pytest tests/ -q -p no:randomly --dburl="${{ matrix.dburl }}" --drop-existing-db
+
+  beta:
+    # an early warning: the next Home Assistant (beta or dev) may change the
+    # recorder schema; this job may fail without blocking a release
+    name: Test Suite (next Home Assistant)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install uv
+        run: python -m pip install "uv==0.12.18"
+      - name: Install the newest test package, pre-releases included
+        run: |
+          grep -v '^pytest-homeassistant-custom-component' requirements_test.txt > /tmp/req.txt
+          uv pip install --system --prerelease=allow -r /tmp/req.txt pytest-homeassistant-custom-component
+          python -c "import homeassistant.const as c; print('Home Assistant', c.__version__)"
+      - name: Run full test suite
+        run: python -m pytest tests/ -q -p no:randomly
+
+  load:
+    # nightly and on demand: a generated database with two million state rows
+    name: Load Test (2 million rows)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install uv
+        run: python -m pip install "uv==0.12.18"
+      - name: Install pinned test tooling
+        run: uv pip install --system -r requirements_test.txt
+      - name: Run the load test
+        run: python -m pytest tests/load -q -s -p no:randomly --load-rows=2000000
+
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest

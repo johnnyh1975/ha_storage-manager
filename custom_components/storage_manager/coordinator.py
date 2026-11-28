@@ -9,12 +9,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from fnmatch import fnmatch
 import logging
 import time
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import (
@@ -68,7 +67,11 @@ from .const import (
     SIGNAL_UPDATED,
     TIER_DEFAULT,
     TIER_DROP,
+    USAGE_MAX_AGE,
 )
+from .dead import DeadEntities
+from .recorder_settings import RecorderSettings
+from .statistics_age import StatisticsAge
 from .store import ManagerStore
 from .targets import (
     DB_DELETE_TARGETS,
@@ -84,17 +87,11 @@ BREAKDOWN_MAX_AGE = 3600
 FILES_MAX_AGE = 6 * 3600
 BACKUPS_MAX_AGE = 3600
 ANALYSIS_MAX_AGE = 26 * 3600
-USAGE_MAX_AGE = 600
 HEALTH_MAX_AGE = 600
+# a good schema check is reused this long; a failed one is repeated every time
+SCHEMA_MAX_AGE = 3600
 STATISTICS_CHECK_MAX_AGE = 6 * 3600
-DEAD_DAYS = 7  # unavailable for this long without a real value counts as dead
-# integrations that discover their entities (MQTT, Zigbee) may need a while
-# after a start before every entity is back: placeholders count only after this
-GONE_GRACE = 3600
 # long-term statistics: keep options in months (None = forever)
-STATS_KEEP_MONTHS = (6, 12, 18, 24, 36, 48, 60, 84)
-STATS_ROW_BYTES = 100  # fallback size of one long-term statistics row
-DAYS_PER_MONTH = 30.4375
 STALE_IMPORT_DAYS = 90  # imported statistics without a new row for this long
 # event types the logbook shows: deleting them removes logbook entries
 LOGBOOK_EVENT_TYPES = frozenset(
@@ -201,11 +198,6 @@ def _defined_in(entry: er.RegistryEntry | None, state: Any) -> str:
     return "yaml_no_id" if state is not None else "gone"
 
 
-def _limits_cover(applied: list[int | None], new: list[int | None]) -> bool:
-    """Whether the new limits keep at least as much as the applied ones."""
-    return all(n is None or (a is not None and n >= a) for a, n in zip(applied, new, strict=True))
-
-
 def _wal_size(path: Any) -> int | None:
     """Size of the SQLite write-ahead log (blocking)."""
     if path is None:
@@ -224,8 +216,11 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, store: ManagerStore) -> None:
         """Initialize."""
         self.options = {**DEFAULT_OPTIONS, **entry.options}
-        self._setup_at = time.time()
+        self.setup_at = time.time()
         self.undo = UndoService(self)
+        self.dead = DeadEntities(self)
+        self.statistics_age = StatisticsAge(self)
+        self.recorder_settings = RecorderSettings(self)
         self.cleanup = CleanupService(self)
         super().__init__(
             hass,
@@ -245,6 +240,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.locked_settings: dict[str, Any] = {}
         self.core_entity_options = recorder_config.core_entity_options()
         self.yaml_filters: dict[str, Any] = {}
+        # the recorder schema check (async_schema); None until it ran
+        self.schema: dict[str, Any] | None = None
         self.analysis_running = False
         self.busy: str | None = None
         self._usage: dict[str, usage_mod.EntityUsage] = {}
@@ -257,8 +254,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unused_key: tuple[Any, ...] | None = None
         self._scans: dict[str, dict[str, Any]] = {}
         self._scanning: str | None = None
-        self._dead: dict[str, int] | None = None
-        self._dead_key: tuple[Any, ...] | None = None
         self._analysis_control: database.AnalysisControl | None = None
         self.analysis_progress: dict[str, Any] | None = None
         self._progress_sent = 0.0
@@ -298,6 +293,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.yaml_filters = recorder_config.summarize_filters(
             await recorder_config.async_yaml_recorder_config(self.hass)
         )
+        await self.async_schema()
 
     # ------------------------------------------------------------------
     # data collection
@@ -327,6 +323,11 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             usage = await hass.async_add_executor_job(disk.local_disk_usage, hass.config.config_dir)
         except OSError as err:
             raise UpdateFailed(f"Cannot read disk usage: {err}") from err
+
+        if self.schema is not None and not self.schema["ok"]:
+            # a failed check (the recorder starting, a database restarting)
+            # is repeated with every update until it passes
+            await self.async_schema()
 
         now = time.time()
         if now - self._last_sample >= SAMPLE_INTERVAL_MIN * 60 - 30:
@@ -378,6 +379,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "database": {
                 "size": db_size,
                 "dialect": (analysis or {}).get("dialect"),
+                "engine": database.engine(hass),
+                "schema": self.schema,
                 "keep_days": get_instance(hass).keep_days,
                 "analysis_at": (analysis or {}).get("generated_at"),
                 "analysis_running": self.analysis_running,
@@ -411,6 +414,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "total": backup_deletable + file_safe + orphans["entity_bytes"] + freelist,
             },
             "recorder": self.recorder_status(),
+            # the disk is nearly full: the panel offers the emergency path
+            "emergency": usage["free"] < safety.EMERGENCY_BELOW,
             "retention_potential": await self._async_retention_potential(),
             "logging": {
                 "debug": logs.debug_sources(),
@@ -420,7 +425,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
             "heavy_writers": self.store.data.heavy_writers,
             "unused_statistics": await self._async_unused_summary(),
-            "dead_entities": await self._async_dead_summary(),
+            "dead_entities": await self.dead.async_summary(),
             "system_log": self.system_log_events(),
             "freed_total": self.store.data.freed_total,
             "busy": self.busy,
@@ -475,10 +480,45 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._progress_sent = now
             self.notify()
 
+    async def async_schema(self, *, force: bool = False) -> dict[str, Any]:
+        """Whether the recorder schema has what Storage Manager's SQL needs.
+
+        A recorder update can rename or drop a column. Then the functions with
+        their own SQL (analysis, cleanups in the database, statistics by age,
+        undo) are switched off with a repair issue instead of failing halfway.
+        """
+        cached = self.schema
+        if (
+            force
+            or cached is None
+            or not cached["ok"]
+            or time.time() - float(cached.get("checked_at", 0)) > SCHEMA_MAX_AGE
+        ):
+            try:
+                cached = await database.async_check_schema(self.hass)
+            except Exception as err:  # noqa: BLE001 - a check that fails must not break setup
+                _LOGGER.warning("Could not read the recorder schema: %s", err)
+                cached = {"ok": False, "missing": [], "error": str(err), "version": None}
+            if not cached["ok"]:
+                _LOGGER.warning(
+                    "The recorder schema lacks what Storage Manager needs (%s); "
+                    "its database functions are off until an update",
+                    ", ".join(cached["missing"]) or cached.get("error"),
+                )
+            self.schema = cached
+        return cached
+
+    async def async_require_schema(self) -> None:
+        """Raise when the schema check failed (for actions started by a person)."""
+        schema = await self.async_schema()
+        if not schema["ok"]:
+            raise HomeAssistantError("schema_unknown")
+
     async def async_run_analysis(self, *, force_sizes: bool = False) -> dict[str, Any]:
         """Analyze the recorder database now (stoppable, in chunks)."""
         if self.analysis_running:
             raise HomeAssistantError("Analysis already running")
+        await self.async_require_schema()
         self.analysis_running = True
         self.analysis_progress = {"phase": "states", "share": 0.0}
         control = database.AnalysisControl(progress=self._on_progress)
@@ -517,123 +557,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ------------------------------------------------------------------
     # recorder: retention tiers and exclusions
     # ------------------------------------------------------------------
-
-    def desired_block(self) -> dict[str, Any]:
-        """The recorder block the package file should contain."""
-        data = self.store.data
-        return recorder_config.build_block(
-            data.excluded, data.filters, data.settings, data.stats_off
-        )
-
-    def recorder_status(self) -> dict[str, Any]:
-        """Status of tiers/exclusions/settings incl. pending restart."""
-        data = self.store.data
-        written = recorder_config.block_items(data.package_written)
-        at_start = recorder_config.block_items(self.package_at_start)
-        desired = recorder_config.block_items(self.desired_block())
-        instance = get_instance(self.hass)
-        return {
-            "packages": self.packages.as_dict(),
-            "excluded_count": len(data.excluded),
-            "core_entity_options": self.core_entity_options,
-            "retention_count": len(data.retention),
-            "restart_required": written != at_start,
-            "pending_restart": sorted(written ^ at_start),
-            "unwritten": sorted(desired ^ written),
-            "yaml_filters": self.yaml_filters,
-            "keep_days": instance.keep_days,
-            "tiers": dict(RETENTION_TIERS),
-            "filters": {k: data.filters.get(k, []) for k in recorder_config.FILTER_KEYS},
-            "exclusion_orphans": self.exclusion_orphans(),
-            "settings": data.settings,
-            "locked_settings": self.locked_settings,
-            "effective_settings": {
-                "purge_keep_days": instance.keep_days,
-                "commit_interval": instance.commit_interval,
-                "auto_purge": instance.auto_purge,
-                "auto_repack": instance.auto_repack,
-            },
-        }
-
-    async def async_sync_package(self) -> bool:
-        """Write the package file if it differs. False when packages are missing."""
-        data = self.store.data
-        desired = self.desired_block()
-        if (
-            recorder_config.block_items(desired)
-            == recorder_config.block_items(data.package_written)
-            and desired == data.package_written
-        ):
-            return True
-        if not self.packages.available:
-            return False
-        await self.hass.async_add_executor_job(
-            recorder_config.write_package, self.packages, desired
-        )
-        data.package_written = desired
-        data.excluded_written = list(data.excluded)
-        self.store.schedule_save()
-        return True
-
-    async def async_apply_settings(
-        self,
-        *,
-        filters: dict[str, list[str]] | None = None,
-        settings: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Change exclusion filters and/or global recorder settings."""
-        data = self.store.data
-        if filters is not None:
-            unknown = set(filters) - set(recorder_config.FILTER_KEYS)
-            if unknown:
-                raise HomeAssistantError(f"Unknown filter {', '.join(sorted(unknown))}")
-            data.filters = {
-                key: sorted({str(v).strip() for v in values if str(v).strip()})
-                for key, values in filters.items()
-            }
-        if settings is not None:
-            try:
-                data.settings = recorder_config.validate_settings(
-                    settings, set(self.locked_settings)
-                )
-            except ValueError as err:
-                raise HomeAssistantError(str(err)) from err
-        self.store.schedule_save()
-        written = await self.async_sync_package()
-        self.store.log("recorder_changes", 0, {"settings": True})
-        await self.async_refresh()
-        status = self.recorder_status()
-        return {
-            "packages_missing": not written,
-            "restart_required": status["restart_required"],
-            "status": status,
-        }
-
-    def exclusion_orphans(self) -> dict[str, list[str]]:
-        """Our exclusions that match nothing that exists any more."""
-        known = self._known_entities()
-        data = self.store.data
-        domains = {e.split(".", 1)[0] for e in known}
-        globs = [
-            g for g in data.filters.get("entity_globs", []) if not any(fnmatch(e, g) for e in known)
-        ]
-        return {
-            "entities": sorted(e for e in data.excluded if e not in known),
-            "domains": sorted(d for d in data.filters.get("domains", []) if d not in domains),
-            "entity_globs": sorted(globs),
-        }
-
-    async def async_remove_exclusion_orphans(self) -> dict[str, Any]:
-        """Drop exclusions that match nothing."""
-        orphans = self.exclusion_orphans()
-        data = self.store.data
-        data.excluded = [e for e in data.excluded if e not in orphans["entities"]]
-        for key in ("domains", "entity_globs"):
-            data.filters[key] = [v for v in data.filters.get(key, []) if v not in orphans[key]]
-        self.store.schedule_save()
-        written = await self.async_sync_package()
-        await self.async_refresh()
-        return {"removed": sum(map(len, orphans.values())), "packages_missing": not written}
 
     async def async_apply_recorder_changes(
         self,
@@ -1028,187 +951,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # dead entities
     # ------------------------------------------------------------------
 
-    async def async_dead_entities(self) -> dict[str, Any]:
-        """Entities that have shown no real value for DEAD_DAYS.
-
-        - gone: the integration loaded but no longer provides the entity;
-          Home Assistant keeps a restored placeholder
-        - unavailable: still provided, but unavailable without a real value
-          (in the database) for DEAD_DAYS
-        - yaml: the same for entities without a unique_id, which can only be
-          removed from the configuration
-        Entities of integrations that are not loaded are left out: they come
-        back once the integration starts again. Entities that something
-        still uses are listed with what uses them and cannot be selected.
-        """
-        hass = self.hass
-        ent_reg = er.async_get(hass)
-        now = time.time()
-        cutoff = now - DEAD_DAYS * 86400
-        candidates: dict[str, dict[str, Any]] = {}
-        for state in hass.states.async_all():
-            if state.state != "unavailable":
-                continue
-            entity_id = state.entity_id
-            entry = ent_reg.async_get(entity_id)
-            if entry is not None:
-                if entry.platform == DOMAIN or entry.disabled_by is not None:
-                    continue
-                if entry.config_entry_id is not None:
-                    config_entry = hass.config_entries.async_get_entry(entry.config_entry_id)
-                    if config_entry is None or config_entry.state is not ConfigEntryState.LOADED:
-                        continue
-            gone = bool(state.attributes.get("restored"))
-            if gone and now - self._setup_at < GONE_GRACE:
-                continue
-            candidates[entity_id] = {
-                "entity_id": entity_id,
-                "name": state.name or entity_id,
-                "kind": "gone" if gone else ("unavailable" if entry is not None else "yaml"),
-                "platform": entry.platform if entry is not None else None,
-                "changed": state.last_changed.timestamp(),
-            }
-        if not candidates:
-            return {"items": [], "bytes": 0, "disabled": self._disabled_dead()}
-        try:
-            values = await database.async_last_values(hass, list(candidates))
-        except Exception:  # noqa: BLE001 - without the database only the state counts
-            _LOGGER.debug("Last values not available", exc_info=True)
-            values = {}
-        found: dict[str, dict[str, Any]] = {}
-        for entity_id, item in candidates.items():
-            recorded = values.get(entity_id)
-            if recorded is None:
-                # not recorded: only the state itself tells
-                since = item["changed"]
-            elif recorded["last"] is not None:
-                since = recorded["last"]
-            else:
-                # no real value as far back as the database goes
-                since = min(item["changed"], recorded["oldest"] or item["changed"])
-                item["no_value_recorded"] = True
-            if item["kind"] != "gone" and since > cutoff:
-                continue
-            item["since"] = since
-            found[entity_id] = item
-        analysis = self.store.data.analysis or {}
-        entities = analysis.get("entities") or {}
-        stats = analysis.get("statistics") or {}
-        usage = await self.async_usage(set(found)) if found else {}
-        for entity_id, item in found.items():
-            info = entities.get(entity_id) or {}
-            item["bytes"] = int(info.get("est_bytes") or 0) + int(
-                (stats.get(entity_id) or {}).get("est_bytes") or 0
-            )
-            used = usage.get(entity_id)
-            item["used"] = used.as_dict() if used is not None and used.used else None
-            item["dynamic"] = bool(used and used.dynamic)
-            item["selectable"] = item["kind"] != "yaml" and item["used"] is None
-            item.pop("changed", None)
-        items = sorted(found.values(), key=lambda i: (not i["selectable"], -i["bytes"]))
-        return {
-            "items": items,
-            "bytes": sum(i["bytes"] for i in items if i["selectable"]),
-            "disabled": self._disabled_dead(),
-        }
-
-    def _disabled_dead(self) -> list[dict[str, Any]]:
-        """Entities Storage Manager disabled that are still disabled by it."""
-        ent_reg = er.async_get(self.hass)
-        out = []
-        for entity_id, when in sorted(self.store.data.disabled_dead.items()):
-            entry = ent_reg.async_get(entity_id)
-            if entry is None or entry.disabled_by is not er.RegistryEntryDisabler.USER:
-                continue
-            out.append(
-                {
-                    "entity_id": entity_id,
-                    "name": entry.name or entry.original_name or entity_id,
-                    "at": when,
-                }
-            )
-        return out
-
-    async def async_dead_selection(self, entity_ids: list[str] | None) -> list[dict[str, Any]]:
-        """The given entities, as far as the check still lists them as selectable.
-
-        Nothing without an explicit selection: dead entities are never
-        disabled or deleted in bulk by a target alone.
-        """
-        if not entity_ids:
-            return []
-        wanted = set(entity_ids)
-        return [
-            i
-            for i in (await self.async_dead_entities())["items"]
-            if i["selectable"] and i["entity_id"] in wanted
-        ]
-
-    def disable_entities(self, entity_ids: list[str]) -> list[str]:
-        """Disable entities in the registry and remember that we did."""
-        ent_reg = er.async_get(self.hass)
-        done = []
-        now = dt_util.utcnow().isoformat()
-        for entity_id in entity_ids:
-            entry = ent_reg.async_get(entity_id)
-            if entry is None or entry.disabled_by is not None:
-                continue
-            ent_reg.async_update_entity(entity_id, disabled_by=er.RegistryEntryDisabler.USER)
-            self.store.data.disabled_dead[entity_id] = now
-            done.append(entity_id)
-        self.store.schedule_save()
-        self._dead_key = None
-        return done
-
-    async def async_disable_dead(self, entity_ids: list[str]) -> dict[str, Any]:
-        """Disable dead entities (only those the check still lists as selectable)."""
-        if not entity_ids:
-            raise HomeAssistantError("No entities given")
-        items = await self.async_dead_selection(entity_ids)
-        done = self.disable_entities([i["entity_id"] for i in items])
-        self.store.log("disable_dead", 0, {"entities": done[:LOG_IDS_MAX]})
-        await self.async_refresh()
-        return {"disabled": done, "skipped": sorted(set(entity_ids) - set(done))}
-
-    async def async_enable_dead(self, entity_ids: list[str]) -> dict[str, Any]:
-        """Enable entities again that Storage Manager disabled."""
-        ent_reg = er.async_get(self.hass)
-        data = self.store.data
-        done = []
-        for entity_id in entity_ids:
-            if entity_id not in data.disabled_dead:
-                continue
-            entry = ent_reg.async_get(entity_id)
-            data.disabled_dead.pop(entity_id, None)
-            if entry is None or entry.disabled_by is not er.RegistryEntryDisabler.USER:
-                continue
-            ent_reg.async_update_entity(entity_id, disabled_by=None)
-            done.append(entity_id)
-        self.store.schedule_save()
-        self._dead_key = None
-        self.store.log("enable_dead", 0, {"entities": done[:LOG_IDS_MAX]})
-        await self.async_refresh()
-        return {"enabled": done}
-
-    async def _async_dead_summary(self) -> dict[str, int] | None:
-        """Count and size of dead entities for the overview (cached)."""
-        analysis = self.store.data.analysis
-        key = (
-            (analysis or {}).get("generated_at"),
-            len(self.store.data.disabled_dead),
-            int(time.time() // USAGE_MAX_AGE),
-        )
-        if key != self._dead_key:
-            try:
-                dead = await self.async_dead_entities()
-            except Exception:  # noqa: BLE001 - the overview must not fail on it
-                _LOGGER.debug("Dead entities not available", exc_info=True)
-                return None
-            items = [i for i in dead["items"] if i["selectable"]]
-            self._dead = {"count": len(items), "bytes": dead["bytes"]}
-            self._dead_key = key
-        return self._dead
-
     # ------------------------------------------------------------------
     # inspector and time window
     # ------------------------------------------------------------------
@@ -1325,138 +1067,6 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # long-term statistics by age
     # ------------------------------------------------------------------
 
-    def statistics_retention(self) -> dict[str, Any]:
-        """Limits for long-term statistics and whether the nightly run follows them."""
-        data = self.store.data
-        current = [data.stats_keep_months, data.energy_stats_keep_months]
-        return {
-            "stats_months": data.stats_keep_months,
-            "energy_months": data.energy_stats_keep_months,
-            "options": list(STATS_KEEP_MONTHS),
-            # the nightly run follows limits that keep at least what was applied
-            "active": any(current)
-            and data.stats_limits_applied is not None
-            and _limits_cover(data.stats_limits_applied, current),
-            "applied": data.stats_limits_applied,
-        }
-
-    def set_statistics_retention(
-        self, stats_months: int | None, energy_months: int | None
-    ) -> dict[str, Any]:
-        """Save the limits; nothing is deleted until they are applied once."""
-        for months in (stats_months, energy_months):
-            if months is not None and months not in STATS_KEEP_MONTHS:
-                raise HomeAssistantError(f"Unsupported number of months: {months}")
-        data = self.store.data
-        data.stats_keep_months = stats_months
-        data.energy_stats_keep_months = energy_months
-        applied = data.stats_limits_applied
-        if applied is not None and not _limits_cover(applied, [stats_months, energy_months]):
-            # shorter than what was applied: the nightly run waits for a confirmed run
-            data.stats_limits_applied = None
-        self.store.schedule_save()
-        self.store.log(
-            "statistics_retention",
-            0,
-            {"stats_months": stats_months, "energy_months": energy_months},
-        )
-        return self.statistics_retention()
-
-    def _stats_row_bytes(self) -> float:
-        stats = (self.store.data.analysis or {}).get("statistics") or {}
-        rows = sum(int(v.get("rows") or 0) for v in stats.values())
-        size = sum(int(v.get("est_bytes") or 0) for v in stats.values())
-        return size / rows if rows and size else float(STATS_ROW_BYTES)
-
-    async def async_statistics_age_plan(
-        self, stats_months: int | None, energy_months: int | None
-    ) -> dict[str, Any]:
-        """Long-term rows the limits would delete, split into energy dashboard and other."""
-        now = time.time()
-        energy = await usage_mod.async_energy_statistics(self.hass)
-        per_row = self._stats_row_bytes()
-        groups: dict[str, dict[str, Any]] = {}
-        items: list[dict[str, Any]] = []
-        for group, months in (("other", stats_months), ("energy", energy_months)):
-            info: dict[str, Any] = {"months": months, "statistics": 0, "rows": 0, "bytes": 0}
-            groups[group] = info
-            if months is None:
-                continue
-            cutoff = now - months * DAYS_PER_MONTH * 86400
-            info["cutoff"] = cutoff
-            oldest: float | None = None
-            for statistic_id, metadata_id, rows, first in await database.async_old_statistics(
-                self.hass, cutoff
-            ):
-                if (statistic_id in energy) != (group == "energy"):
-                    continue
-                info["statistics"] += 1
-                info["rows"] += rows
-                oldest = first if oldest is None else min(oldest, first)
-                items.append(
-                    {
-                        "statistic_id": statistic_id,
-                        "metadata_id": metadata_id,
-                        "rows": rows,
-                        "cutoff": cutoff,
-                        "group": group,
-                    }
-                )
-            info["bytes"] = int(info["rows"] * per_row)
-            info["oldest"] = oldest
-        return {
-            "groups": groups,
-            "rows": sum(g["rows"] for g in groups.values()),
-            "bytes": sum(g["bytes"] for g in groups.values()),
-            "items": items,
-        }
-
-    async def async_statistics_age_current(self) -> dict[str, Any]:
-        data = self.store.data
-        return await self.async_statistics_age_plan(
-            data.stats_keep_months, data.energy_stats_keep_months
-        )
-
-    async def async_delete_old_statistics(self, plan: dict[str, Any]) -> int:
-        by_cutoff: dict[float, list[int]] = {}
-        for item in plan["items"]:
-            by_cutoff.setdefault(item["cutoff"], []).append(item["metadata_id"])
-        return await database.async_delete_old_statistics(
-            self.hass, [(ids, cutoff) for cutoff, ids in by_cutoff.items()]
-        )
-
-    async def async_run_statistics_age(self) -> int:
-        """Nightly: keep the applied limits (rows that aged past them since)."""
-        data = self.store.data
-        if not self.statistics_retention()["active"]:
-            return 0
-        result = (data.integrity or {}).get("result")
-        if result == safety.RESULT_ERROR:
-            # the last check could not run: check again before deleting rows
-            # that nothing brings back (the retention run, like Home
-            # Assistant's own purge, only waits for a damaged file)
-            result = (
-                await safety.async_integrity(
-                    self.hass, database.sqlite_path(self.hass), self.store, force=True
-                )
-            )["result"]
-        if result in (safety.RESULT_CORRUPT, safety.RESULT_ERROR):
-            _LOGGER.warning("Statistics limits skipped: the database integrity check failed")
-            return 0
-        plan = await self.async_statistics_age_current()
-        if not plan["items"]:
-            return 0
-        async with self._lock:
-            await self.store.async_mark_running(
-                "statistics_age", {"statistics": len(plan["items"])}
-            )
-            try:
-                rows = await self.async_delete_old_statistics(plan)
-            finally:
-                await self.store.async_clear_running()
-        _LOGGER.debug("Deleted %s long-term statistics rows past the limits", rows)
-        return rows
-
     # ------------------------------------------------------------------
     # targeted backup and undo
     # ------------------------------------------------------------------
@@ -1465,7 +1075,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # orphans
     # ------------------------------------------------------------------
 
-    def _known_entities(self) -> set[str]:
+    def known_entities(self) -> set[str]:
         known = set(self.hass.states.async_entity_ids())
         known.update(er.async_get(self.hass).entities)
         return known
@@ -1473,7 +1083,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def orphans(self) -> dict[str, Any]:
         """Recorded entities / statistics whose entity no longer exists."""
         analysis = self.store.data.analysis or {}
-        known = self._known_entities()
+        known = self.known_entities()
         entities = analysis.get("entities") or {}
         orphan_entities = sorted(e for e in entities if e not in known)
         stats = analysis.get("statistics") or {}
@@ -1487,6 +1097,60 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for e in orphan_entities
             ),
             "statistics": orphan_stats,
+        }
+
+    async def async_emergency_plan(self) -> dict[str, Any]:
+        """The emergency path when the disk is nearly full, step by step.
+
+        1. What frees disk space without touching the database: caches and
+           logs, local backup copies the rotation may delete, Docker images.
+        2. The biggest causes in the database that nothing needs (history of
+           deleted entities, event types that are excluded), deleted in small
+           steps without a backup. This makes room inside the database, so it
+           stops growing; the file itself does not shrink yet.
+        3. Repacking gives that room back to the disk, if a method fits.
+
+        Built from the last refresh: the panel asks for it after every update,
+        and a refresh here would trigger the next one.
+        """
+        data = self.data
+        free = int(data["disk"]["free"])
+        analysis = self.store.data.analysis or {}
+        entities = analysis.get("entities") or {}
+        orphans = [
+            {
+                "entity_id": e,
+                "bytes": int(entities[e].get("est_state_bytes", entities[e].get("est_bytes", 0))),
+            }
+            for e in self.orphans()["entities"]
+        ]
+        orphans.sort(key=lambda i: i["bytes"], reverse=True)
+        events = [
+            {
+                "event_type": e["event_type"],
+                "rows": e["rows"],
+                "bytes": int(e.get("est_bytes") or 0),
+            }
+            for e in self.events_overview()
+            if e["excluded"] and e["deletable"]
+        ]
+        return {
+            "active": free < safety.EMERGENCY_BELOW,
+            "free": free,
+            "total": int(data["disk"]["total"]),
+            "below": safety.EMERGENCY_BELOW,
+            "step_floor": safety.EMERGENCY_MIN_FREE,
+            "files": int(data["reclaimable"]["files"]),
+            "backups": int(data["reclaimable"]["backups"]),
+            "rotation": bool(self.options[CONF_BACKUP_ROTATION]),
+            "docker": bool(data["is_hassio"]),
+            "orphans": orphans,
+            "orphan_bytes": sum(i["bytes"] for i in orphans),
+            "events": events,
+            "event_bytes": sum(i["bytes"] for i in events),
+            "repack": data["database"].get("repack"),
+            "repack_possible": self.repack_possible(),
+            "server": database.on_server(self.hass),
         }
 
     # ------------------------------------------------------------------
@@ -1559,7 +1223,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entities: dict[str, dict[str, Any]] = analysis.get("entities") or {}
         if not entities:
             return {}
-        known = self._known_entities()
+        known = self.known_entities()
         candidates = {e for e in entities if e in known}
         usage = await self.async_usage(candidates)
         total = int(sum(i.get("est_bytes", 0) for i in entities.values()))
@@ -1625,7 +1289,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             | set(data.retention)
             | set(data.excluded)
         )
-        known = self._known_entities()
+        known = self.known_entities()
         try:
             usage = await self.async_usage(ids)
         except Exception:  # noqa: BLE001 - the list works without the usage facet
@@ -1856,7 +1520,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not auto or not entities:
             return []
         ent_reg = er.async_get(self.hass)
-        known = self._known_entities()
+        known = self.known_entities()
         skip = {*data.retention, *data.excluded, *data.auto_applied, *data.dismissed}
         policy = data.kind_rules
         found: dict[str, advisor.EntityFacts] = {}
@@ -2218,10 +1882,17 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             disk_free=int(self.data["disk"]["free"]),
             backup_enabled=bool(self.options[CONF_BACKUP_BEFORE_DELETE]),
             backup_needed=backup_needed,
+            server=database.on_server(self.hass),
+            addon=database.database_addon(self.hass),
         )
 
     async def async_safety(
-        self, *, skip_backup: bool, delete_bytes: int = 0, backup_needed: bool = True
+        self,
+        *,
+        skip_backup: bool,
+        delete_bytes: int = 0,
+        backup_needed: bool = True,
+        emergency: bool = False,
     ) -> dict[str, Any]:
         """Run the safety chain on fresh numbers; raises safety.SafetyError."""
         await self.async_refresh()
@@ -2238,6 +1909,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and backup_needed
                 and not skip_backup,
                 on_step=lambda key: self.set_busy(f"safety_{key}"),
+                server=database.on_server(self.hass),
+                emergency=emergency,
+                addon=database.database_addon(self.hass),
             )
         finally:
             self.set_busy(None)
@@ -2387,6 +2061,89 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_prune_undo(self) -> None:
         """Drop old undo files."""
         await self.undo.async_prune()
+
+    # ---- dead entities (dead.py) -----------------------------------------
+
+    async def async_dead_entities(self) -> dict[str, Any]:
+        """Entities that have shown no real value for DEAD_DAYS."""
+        return await self.dead.async_list()
+
+    async def async_dead_selection(self, entity_ids: list[str] | None) -> list[dict[str, Any]]:
+        """The given entities, as far as the check still lists them as selectable."""
+        return await self.dead.async_selection(entity_ids)
+
+    def disable_entities(self, entity_ids: list[str]) -> list[str]:
+        """Disable entities in the registry and remember that we did."""
+        return self.dead.disable(entity_ids)
+
+    async def async_disable_dead(self, entity_ids: list[str]) -> dict[str, Any]:
+        """Disable dead entities (only those the check still lists as selectable)."""
+        return await self.dead.async_disable(entity_ids)
+
+    async def async_enable_dead(self, entity_ids: list[str]) -> dict[str, Any]:
+        """Enable entities again that Storage Manager disabled."""
+        return await self.dead.async_enable(entity_ids)
+
+    # ---- long-term statistics by age (statistics_age.py) ------------------
+
+    def statistics_retention(self) -> dict[str, Any]:
+        """Limits for long-term statistics and whether the nightly run follows them."""
+        return self.statistics_age.status()
+
+    def set_statistics_retention(
+        self, stats_months: int | None, energy_months: int | None
+    ) -> dict[str, Any]:
+        """Save the limits; nothing is deleted until they are applied once."""
+        return self.statistics_age.set_limits(stats_months, energy_months)
+
+    async def async_statistics_age_plan(
+        self, stats_months: int | None, energy_months: int | None
+    ) -> dict[str, Any]:
+        """Long-term rows the limits would delete, split into energy dashboard and other."""
+        return await self.statistics_age.async_plan(stats_months, energy_months)
+
+    async def async_statistics_age_current(self) -> dict[str, Any]:
+        """async_statistics_age_current"""
+        return await self.statistics_age.async_current()
+
+    async def async_delete_old_statistics(self, plan: dict[str, Any]) -> int:
+        """async_delete_old_statistics"""
+        return await self.statistics_age.async_delete(plan)
+
+    async def async_run_statistics_age(self) -> int:
+        """Nightly: keep the applied limits (rows that aged past them since)."""
+        return await self.statistics_age.async_run()
+
+    # ---- recorder settings and exclusions (recorder_settings.py) ----------
+
+    def desired_block(self) -> dict[str, Any]:
+        """The recorder block the package file should contain."""
+        return self.recorder_settings.desired_block()
+
+    def recorder_status(self) -> dict[str, Any]:
+        """Status of tiers/exclusions/settings incl. pending restart."""
+        return self.recorder_settings.status()
+
+    async def async_sync_package(self) -> bool:
+        """Write the package file if it differs. False when packages are missing."""
+        return await self.recorder_settings.async_sync_package()
+
+    async def async_apply_settings(
+        self,
+        *,
+        filters: dict[str, list[str]] | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Change exclusion filters and/or global recorder settings."""
+        return await self.recorder_settings.async_apply(filters=filters, settings=settings)
+
+    def exclusion_orphans(self) -> dict[str, list[str]]:
+        """Our exclusions that match nothing that exists any more."""
+        return self.recorder_settings.exclusion_orphans()
+
+    async def async_remove_exclusion_orphans(self) -> dict[str, Any]:
+        """Drop exclusions that match nothing."""
+        return await self.recorder_settings.async_remove_exclusion_orphans()
 
     # ---- what CleanupService and UndoService use ---------------------------
 

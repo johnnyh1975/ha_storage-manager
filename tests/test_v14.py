@@ -26,9 +26,9 @@ async def test_statistics_age_checks_again_after_a_failed_check(hass: HomeAssist
     coordinator.store.data.integrity = {"result": safety.RESULT_ERROR, "at": 0}
     deleted = AsyncMock(return_value=2)
     with (
-        patch.object(coordinator, "statistics_retention", return_value={"active": True}),
-        patch.object(coordinator, "async_statistics_age_current", AsyncMock(return_value=plan)),
-        patch.object(coordinator, "async_delete_old_statistics", deleted),
+        patch.object(coordinator.statistics_age, "status", return_value={"active": True}),
+        patch.object(coordinator.statistics_age, "async_current", AsyncMock(return_value=plan)),
+        patch.object(coordinator.statistics_age, "async_delete", deleted),
         patch.object(database, "sqlite_path", return_value="db"),
     ):
         still = AsyncMock(return_value={"result": safety.RESULT_ERROR})

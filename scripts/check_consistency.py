@@ -93,7 +93,13 @@ def mixin_methods() -> list[str]:
     return errors
 
 
-SERVICES = ("cleanup.py", "undo_service.py")
+SERVICES = (
+    "cleanup.py",
+    "undo_service.py",
+    "dead.py",
+    "statistics_age.py",
+    "recorder_settings.py",
+)
 PRIVATE = re.compile(r"\b(?:self\._c|c)\._[a-z]")
 
 

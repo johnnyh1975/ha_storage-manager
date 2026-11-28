@@ -18,6 +18,26 @@ from custom_components.storage_manager.const import DOMAIN
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """--load-rows: size of the generated database for tests/load (0 skips them)."""
+    parser.addoption("--load-rows", action="store", type=int, default=0)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the marker for tests of SQLite-only behaviour."""
+    config.addinivalue_line("markers", "sqlite_only: the behaviour exists only on SQLite")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip SQLite-only tests when the suite runs against MariaDB or PostgreSQL."""
+    if str(config.getoption("dburl", "sqlite://")).startswith("sqlite"):
+        return
+    skip = pytest.mark.skip(reason="SQLite-only behaviour")
+    for item in items:
+        if "sqlite_only" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture(autouse=True)
 def _no_chunk_pause():
     """Chunked analysis without the pause between chunks."""

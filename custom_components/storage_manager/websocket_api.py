@@ -254,6 +254,7 @@ async def _clean(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         convert=msg.get("convert", True),
         event_types=msg.get("event_types"),
         plan_id=msg.get("plan_id"),
+        emergency=msg.get("emergency", False),
     )
 
 
@@ -264,6 +265,10 @@ async def _health(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
 async def _attest(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     c.attest(msg["key"], msg["done"])
     return await c.async_health()
+
+
+async def _emergency_plan(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_emergency_plan()
 
 
 async def _check_integrity(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -522,10 +527,12 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("convert", default=True): bool,
             vol.Optional("event_types"): [str],
             vol.Optional("plan_id"): vol.All(str, vol.Length(min=1, max=64)),
+            vol.Optional("emergency", default=False): bool,
         },
         _clean,
     )
     _register(hass, {"type": f"{DOMAIN}/check_integrity"}, _check_integrity)
+    _register(hass, {"type": f"{DOMAIN}/emergency_plan"}, _emergency_plan)
     _register(
         hass,
         {"type": f"{DOMAIN}/health", vol.Optional("force", default=False): bool},

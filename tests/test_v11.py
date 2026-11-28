@@ -202,7 +202,7 @@ async def test_statistics_by_age(hass: HomeAssistant, hass_ws_client) -> None:
 
 def test_limits_and_store() -> None:
     """Limit comparison, stored values and the action schema."""
-    from custom_components.storage_manager.coordinator import _limits_cover
+    from custom_components.storage_manager.statistics_age import _limits_cover
 
     assert _limits_cover([12, None], [24, None])
     assert _limits_cover([12, 24], [None, 24])
@@ -232,9 +232,9 @@ async def test_row_bytes(hass: HomeAssistant) -> None:
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
     coordinator.store.data.analysis = {"statistics": {"a": {"rows": 10, "est_bytes": 500}}}
-    assert coordinator._stats_row_bytes() == 50
+    assert coordinator.statistics_age.row_bytes() == 50
     coordinator.store.data.analysis = None
-    assert coordinator._stats_row_bytes() == 100
+    assert coordinator.statistics_age.row_bytes() == 100
 
 
 # ------------------------------------------------------------- explorer

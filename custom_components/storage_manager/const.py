@@ -11,7 +11,7 @@ from typing import Any, Final
 
 DOMAIN: Final = "storage_manager"
 NAME: Final = "Storage Manager"
-VERSION: Final = "1.4.0"
+VERSION: Final = "1.5.0"
 
 STORAGE_KEY: Final = f"{DOMAIN}.data"
 STORAGE_VERSION: Final = 1
@@ -93,8 +93,12 @@ ISSUE_RESTART: Final = "restart_required"
 ISSUE_PACKAGES: Final = "packages_missing"
 ISSUE_HEAVY_WRITERS: Final = "heavy_writers"
 ISSUE_DATABASE_DAMAGED: Final = "database_damaged"
+ISSUE_SCHEMA: Final = "schema_unknown"
 
 PACKAGE_NAME: Final = "storage_manager"
 PACKAGE_FILE: Final = "storage_manager.yaml"
 
 SIGNAL_UPDATED: Final = f"{DOMAIN}_updated"
+
+# where entities are used is read again after this many seconds
+USAGE_MAX_AGE: Final = 600

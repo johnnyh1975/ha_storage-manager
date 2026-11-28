@@ -21,7 +21,7 @@ export const HealthSection = (Base) =>
       try {
         this._health = await this._ws("health", { force });
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -29,7 +29,7 @@ export const HealthSection = (Base) =>
       try {
         this._health = await this._ws("attest", { key, done });
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -40,7 +40,7 @@ export const HealthSection = (Base) =>
         this._showToast(this.t(`integrity_${res.result}`));
         await Promise.all([this._loadOverview(), this._loadHealth(true)]);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       } finally {
         this._working = null;
       }
@@ -50,7 +50,7 @@ export const HealthSection = (Base) =>
       try {
         await this._ws("stop_analysis");
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -111,7 +111,12 @@ export const HealthSection = (Base) =>
       const split = space.backup
         ? ` ${t(space.backup_source === "previous" ? "safety_space_split_previous" : "safety_space_split_file", spaceVars)}`
         : "";
-      items.push(html`<li class=${space.ok ? "" : "bad"}>${t(space.ok ? "safety_space_ok" : "safety_space_low", spaceVars)}${split}</li>`);
+      if (space.server) {
+        // MariaDB / PostgreSQL: the deletion needs room on the database server
+        items.push(html`<li class=${space.ok ? "" : "bad"}>${t(space.need ? (space.ok ? "safety_space_ok" : "safety_space_low") : "safety_space_server_only", spaceVars)}${space.need ? html` ${t("safety_space_server")}` : nothing}</li>`);
+      } else {
+        items.push(html`<li class=${space.ok ? "" : "bad"}>${t(space.ok ? "safety_space_ok" : "safety_space_low", spaceVars)}${split}</li>`);
+      }
       if (safety.integrity !== "unsupported") items.push(html`<li>${t(`safety_integrity_${safety.integrity}`)}</li>`);
       const b = safety.backup;
       items.push(html`<li class=${b.action === "unavailable" ? "bad" : ""}>${t(`safety_backup_${b.action}`, {
@@ -216,7 +221,7 @@ export const HealthSection = (Base) =>
         this._showToast(this.t("writers_acked"));
         await this._loadHealth(true);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 

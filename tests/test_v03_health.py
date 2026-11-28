@@ -336,6 +336,7 @@ async def test_backup_info(hass: HomeAssistant) -> None:
 # ----------------------------------------------------------------------
 
 
+@pytest.mark.sqlite_only
 async def test_health_ws_and_attestations(
     hass: HomeAssistant, hass_ws_client, tmp_path: Path
 ) -> None:

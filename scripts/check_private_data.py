@@ -31,7 +31,10 @@ PATTERNS = {
         r"(/Users/|/home/|C:\\Users\\)(?!runner|user|USER|<|\{|\$)[A-Za-z0-9._-]+"
     ),
 }
-ALLOWED_EMAILS = re.compile(r"(noreply|example\.(com|org)|users\.noreply\.github\.com)")
+# database URLs of the CI service containers (user@127.0.0.1) are not addresses
+ALLOWED_EMAILS = re.compile(
+    r"(noreply|example\.(com|org)|users\.noreply\.github\.com|@127\.0\.0\.1\b)"
+)
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 ALLOWED_NETS = [
     ipaddress.ip_network(n)

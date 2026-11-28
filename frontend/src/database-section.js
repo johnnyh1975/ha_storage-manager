@@ -85,7 +85,7 @@ export const DatabaseSection = (Base) =>
         await this._ws("dismiss", { entity_ids: entityIds, undo });
         await this._loadEntities();
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -95,8 +95,17 @@ export const DatabaseSection = (Base) =>
         this._detail = await this._ws("entity_detail", { entity_id: entityId });
       } catch (err) {
         this._detail = undefined;
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
+    }
+
+    _engineNote(db, ent) {
+      // MariaDB and PostgreSQL are tested like SQLite; MySQL is not
+      const dialect = ent?.dialect || db.dialect;
+      if (!dialect || dialect === "sqlite") return nothing;
+      const name = db.engine?.name || ENGINES[dialect] || dialect;
+      const tested = name === "MariaDB" || name === "PostgreSQL";
+      return html`<div class="banner ${tested ? "info" : ""}" style="margin-top:8px"><div class="txt">${this.t(tested ? "engine_sqlite_only" : "engine_untested", { engine: name })}</div></div>`;
     }
 
     // ----------------------------------------------------- sections, jumps
@@ -238,6 +247,12 @@ export const DatabaseSection = (Base) =>
       const ent = this._entities;
       const running = db.analysis_running || this._working === "analyze";
       return html`
+        ${db.schema && !db.schema.ok
+          ? html`<div class="banner"><ha-icon icon="mdi:database-alert"></ha-icon>
+              <div class="txt">${db.schema.error
+                ? t("schema_banner_error", { error: db.schema.error })
+                : t("schema_banner", { version: db.schema.version ?? "–" })}</div></div>`
+          : nothing}
         ${rec.restart_required
           ? html`<div class="banner"><ha-icon icon="mdi:restart-alert"></ha-icon>
               <div class="txt">${t("restart_banner", { n: rec.pending_restart.length })}</div>
@@ -263,7 +278,8 @@ export const DatabaseSection = (Base) =>
             <div class="kpis">
               <button class="kpi link" title=${t("kpi_size_hint")} @click=${() => this._goTo("entities", { view: "all", sort: "size", orphans: false })}>
                 <div class="v">${bytes(db.size, this.lang)}<span class="go" aria-hidden="true">›</span></div><div class="l">${t("db_size")}</div></button>
-              <div class="kpi"><div class="v">${ENGINES[db.dialect] || db.dialect || "–"}</div><div class="l">${t("db_engine")}</div></div>
+              <div class="kpi"><div class="v">${db.engine?.name || ENGINES[db.dialect] || db.dialect || "–"}</div>
+                <div class="l">${t("db_engine")}${db.engine?.version && db.dialect !== "sqlite" ? ` ${db.engine.version}` : ""}</div></div>
               <button class="kpi link" title=${t("kpi_keep_hint")} @click=${() => this._setTab("settings")}>
                 <div class="v">${t("days", { n: db.keep_days })}<span class="go" aria-hidden="true">›</span></div><div class="l">${t("db_keep")}</div></button>
               <div class="kpi"><div class="v">${running ? html`<span class="spinner" style="width:18px;height:18px"></span>` : relativeTime(db.analysis_at, t, this.lang)}</div>
@@ -286,9 +302,7 @@ export const DatabaseSection = (Base) =>
               <span class="spacer"></span>
               <button class="btn" ?disabled=${running || !!this._working} @click=${this._analyze}>${t("analyze")}</button>
             </div>
-            ${ent?.dialect && ent.dialect !== "sqlite"
-              ? html`<div class="banner" style="margin-top:8px"><div class="txt">${t("engine_untested", { engine: ent.dialect === "mysql" ? "MariaDB/MySQL" : ent.dialect === "postgresql" ? "PostgreSQL" : ent.dialect })}</div></div>`
-              : nothing}
+            ${this._engineNote(db, ent)}
             ${this._renderAnalysisProgress(db)}
           </div>
           ${this._renderEffect(ent)}
@@ -415,7 +429,7 @@ export const DatabaseSection = (Base) =>
         this._deadSel = new Set();
         await Promise.all([this._loadDead(), this._loadOverview()]);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       } finally {
         this._working = null;
       }
@@ -428,7 +442,7 @@ export const DatabaseSection = (Base) =>
         this._showToast(this.t("dead_enabled_done", { n: res.enabled.length }));
         await Promise.all([this._loadDead(), this._loadOverview()]);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       } finally {
         this._working = null;
       }
@@ -493,7 +507,7 @@ export const DatabaseSection = (Base) =>
         this._showToast(this.t(res.packages_missing ? "packages_banner" : "unused_on_done"));
         await Promise.all([this._loadUnused(), this._loadOverview()]);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       } finally {
         this._working = null;
       }
@@ -701,7 +715,7 @@ export const DatabaseSection = (Base) =>
         await Promise.all([this._loadEntities(), this._loadOverview()]);
         this._showToast(this.t("kinds_saved"));
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       } finally {
         this._working = null;
       }
@@ -787,7 +801,7 @@ export const DatabaseSection = (Base) =>
         this._win = { ...(await this._ws("writers", { start, end })), loading: false };
       } catch (err) {
         this._win = undefined;
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -1384,7 +1398,7 @@ export const DatabaseSection = (Base) =>
         this._whatif = undefined;
         await Promise.all([this._loadOverview(), this._loadEntities()]);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       } finally {
         this._working = null;
       }
@@ -1397,7 +1411,7 @@ export const DatabaseSection = (Base) =>
         this._settingsDraft = undefined;
         await Promise.all([this._loadOverview(), this._loadEntities()]);
       } catch (err) {
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -1538,7 +1552,7 @@ export const DatabaseSection = (Base) =>
         this._raw = { entity_id: entityId, kind, rows: [...(more && prev ? prev.rows : []), ...res.rows], next: res.next, loading: false };
       } catch (err) {
         this._raw = undefined;
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 
@@ -1652,7 +1666,7 @@ export const DatabaseSection = (Base) =>
         this._tpl = { ...tpl, loading: false, result };
       } catch (err) {
         this._tpl = { ...tpl, loading: false };
-        this._showToast(this.t("error", { msg: err.message }));
+        this._showToast(this._errorText(err));
       }
     }
 

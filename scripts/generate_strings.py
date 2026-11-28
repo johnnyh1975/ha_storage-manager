@@ -234,6 +234,16 @@ def build(lang):
                     "Die Integritätsprüfung von SQLite hat Fehler gefunden: {details}\n\nStorage Manager löscht nichts aus der Datenbank, bis eine Prüfung wieder bestanden ist. Stößt Home Assistant selbst auf den Schaden, legt es die Datenbank beiseite und beginnt eine neue, leere. Die Recorder-Dokumentation beschreibt die Möglichkeiten. Stelle ein Backup wieder her, wenn du den alten Verlauf brauchst, und starte die Prüfung danach im Storage-Manager-Panel erneut.",
                 ),
             },
+            "schema_unknown": {
+                "title": t(
+                    "Storage Manager does not know this recorder schema",
+                    "Storage Manager kennt dieses Recorder-Schema nicht",
+                ),
+                "description": t(
+                    "The recorder database (schema {version}) lacks what Storage Manager's own queries need: {missing}.\n\nThe analysis, the cleanups in the database and the limit for long-term statistics are switched off until Storage Manager is updated; nothing has been changed. Backups, files, retention by tier, the recorder settings and undo keep working.",
+                    "Der Recorder-Datenbank (Schema {version}) fehlt, was die eigenen Abfragen von Storage Manager brauchen: {missing}.\n\nAnalyse, Aufräumen in der Datenbank und die Grenze für die Langzeitstatistik sind abgeschaltet, bis Storage Manager aktualisiert ist; geändert wurde nichts. Backups, Dateien, Aufbewahrung nach Stufen, die Recorder-Einstellungen und „Rückgängig“ laufen weiter.",
+                ),
+            },
         },
         "exceptions": {
             "not_loaded": {

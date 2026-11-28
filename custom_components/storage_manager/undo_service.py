@@ -95,20 +95,27 @@ class UndoService:
             _LOGGER.exception("Targeted backup failed, using the full backup")
         if self._c.options[CONF_BACKUP_BEFORE_DELETE] and not skip_backup:
             self._c.set_busy("safety_backup")
-            backup = await safety.async_recent_backup(self._c.hass)
+            addon = database.database_addon(self._c.hass)
+            backup = await safety.async_recent_backup(self._c.hass, addon=addon)
             if backup is None:
                 # the safety chain checked the space without a backup: check
                 # again before the fallback fills the disk
                 size, _ = await safety.async_backup_size(
                     self._c.hass, int(self._c.data["database"]["size"] or 0)
                 )
-                need = safety.space_needed(
-                    live_bytes=self._c.live_bytes(), delete_bytes=delete_bytes, backup_bytes=size
+                need = (
+                    size
+                    if database.on_server(self._c.hass)
+                    else safety.space_needed(
+                        live_bytes=self._c.live_bytes(),
+                        delete_bytes=delete_bytes,
+                        backup_bytes=size,
+                    )
                 )
                 free = int(self._c.data["disk"]["free"])
                 if free < need:
                     raise safety.SafetyError("no_space", str(need))
-                backup = await safety.async_create_backup(self._c.hass)
+                backup = await safety.async_create_backup(self._c.hass, addon)
             safety_result["backup"] = backup
         return None
 
@@ -117,9 +124,12 @@ class UndoService:
         config_dir = hass.config.config_dir
         # the safety chain has just refreshed the numbers
         free = int(self._c.data["disk"]["free"])
-        need = safety.work_space(self._c.live_bytes(), delete_bytes) + (
-            delete_bytes // 2 + UNDO_SPACE_MARGIN
+        # the undo file is written here; on a database server the deletion
+        # itself needs room there, not on this disk
+        work = (
+            0 if database.on_server(hass) else safety.work_space(self._c.live_bytes(), delete_bytes)
         )
+        need = work + delete_bytes // 2 + UNDO_SPACE_MARGIN
         if free < need:
             raise undo.UndoError("no_space", str(need))
         self._c.set_busy("undo_export")

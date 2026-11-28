@@ -143,6 +143,10 @@
     "database_damaged": {
       "title": "The recorder database is damaged",
       "description": "SQLite's integrity check found errors: {details}\n\nStorage Manager deletes nothing from the database until a check passes again. When Home Assistant itself runs into the damage, it moves the database aside and starts a new, empty one. See the recorder documentation for your options, restore a backup if you need the old history, and run the check again from the Storage Manager panel."
+    },
+    "schema_unknown": {
+      "title": "Storage Manager does not know this recorder schema",
+      "description": "The recorder database (schema {version}) lacks what Storage Manager's own queries need: {missing}.\n\nThe analysis, the cleanups in the database and the limit for long-term statistics are switched off until Storage Manager is updated; nothing has been changed. Backups, files, retention by tier, the recorder settings and undo keep working."
     }
   },
   "exceptions": {

@@ -214,7 +214,7 @@ async def _dead_setup(hass: HomeAssistant):
     }
     usage = {ids["used"]: EntityUsage(automations=["automation.x"])}
     # placeholders count only some time after the start
-    coordinator._setup_at = now - 2 * 3600
+    coordinator.setup_at = now - 2 * 3600
     return coordinator, ids, values, usage
 
 
@@ -316,7 +316,7 @@ async def test_dead_entities(hass: HomeAssistant, hass_ws_client) -> None:
 async def test_gone_waits_after_start(hass: HomeAssistant) -> None:
     """Right after a start a placeholder may still be discovered again."""
     coordinator, ids, values, usage = await _dead_setup(hass)
-    coordinator._setup_at = time.time()
+    coordinator.setup_at = time.time()
     with (
         patch.object(database, "async_last_values", AsyncMock(return_value=values)),
         patch.object(coordinator, "async_usage", AsyncMock(return_value=usage)),
@@ -343,9 +343,9 @@ async def test_dead_summary_fails_quietly(hass: HomeAssistant) -> None:
     """The overview survives a broken check."""
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
-    coordinator._dead_key = None
-    with patch.object(coordinator, "async_dead_entities", AsyncMock(side_effect=RuntimeError)):
-        assert await coordinator._async_dead_summary() is None
+    coordinator.dead._dead_key = None
+    with patch.object(coordinator.dead, "async_list", AsyncMock(side_effect=RuntimeError)):
+        assert await coordinator.dead.async_summary() is None
 
 
 async def test_orphans_ignore_dead_selection(hass: HomeAssistant) -> None:

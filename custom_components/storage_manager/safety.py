@@ -34,6 +34,14 @@ _LOGGER = logging.getLogger(__name__)
 
 MIB = 1024 * 1024
 MIN_FREE = 512 * MIB
+# below this much free space the emergency path offers deletions in small
+# steps without a backup (after an explicit confirmation)
+EMERGENCY_BELOW = 2 * MIN_FREE
+# the floor for one small step of the emergency path
+EMERGENCY_MIN_FREE = 64 * MIB
+# the most one step writes at a time: the recorder's purge and the event
+# deletion work in batches, so even a large entity is many small steps
+EMERGENCY_STEP_BYTES = 16 * MIB
 INTEGRITY_MAX_AGE = 3 * 86400
 INTEGRITY_TIMEOUT = 15 * 60
 INTEGRITY_MAX_ERRORS = 10
@@ -67,7 +75,7 @@ WORK_FACTOR = 3
 BACKUP_MARGIN = 1.1
 
 
-def work_space(live_bytes: int, delete_bytes: int) -> int:
+def work_space(live_bytes: int, delete_bytes: int, floor: int = MIN_FREE) -> int:
     """Room the deletion itself needs.
 
     Deleting rows writes the touched pages to the write-ahead log and frees
@@ -75,7 +83,7 @@ def work_space(live_bytes: int, delete_bytes: int) -> int:
     bytes is plenty, half of the data is the upper bound (HA Housekeeper's
     rule) and 512 MB the floor.
     """
-    return max(MIN_FREE, min(live_bytes // 2, delete_bytes * WORK_FACTOR))
+    return max(floor, min(live_bytes // 2, delete_bytes * WORK_FACTOR))
 
 
 def space_needed(*, live_bytes: int, delete_bytes: int, backup_bytes: int) -> int:
@@ -156,13 +164,15 @@ def backup_targets(manager: Any) -> tuple[list[str], str | None]:
     return local[:1], None
 
 
-def _usable(backup: Any) -> bool:
+def _usable(backup: Any, addon: str | None = None) -> bool:
     agents = set(getattr(backup, "agents", {}) or {})
     failed = set(getattr(backup, "failed_agent_ids", []) or [])
+    addons = {getattr(a, "slug", None) for a in getattr(backup, "addons", []) or []}
     return bool(
         getattr(backup, "database_included", False)
         and getattr(backup, "homeassistant_included", False)
         and agents - failed
+        and (addon is None or addon in addons)
     )
 
 
@@ -183,9 +193,9 @@ def _describe(backup: Any, *, created: bool) -> dict[str, Any]:
 
 
 async def async_recent_backup(
-    hass: HomeAssistant, max_age: timedelta = BACKUP_REUSE_AGE
+    hass: HomeAssistant, max_age: timedelta = BACKUP_REUSE_AGE, addon: str | None = None
 ) -> dict[str, Any] | None:
-    """Newest usable backup with the database that is recent enough."""
+    """Newest usable backup with the database (and ``addon``) that is recent enough."""
     manager = backup_mod.backup_manager(hass)
     if manager is None:
         return None
@@ -194,7 +204,7 @@ async def async_recent_backup(
     best: tuple[datetime, Any] | None = None
     for backup in backups.values():
         when = _when(backup)
-        if when is None or when < limit or not _usable(backup):
+        if when is None or when < limit or not _usable(backup, addon):
             continue
         if best is None or when > best[0]:
             best = (when, backup)
@@ -219,8 +229,12 @@ async def async_backup_size(hass: HomeAssistant, fallback: int) -> tuple[int, st
     return fallback, "file"
 
 
-async def async_create_backup(hass: HomeAssistant) -> dict[str, Any]:
-    """Create a backup of Home Assistant with the database and verify it."""
+async def async_create_backup(hass: HomeAssistant, addon: str | None = None) -> dict[str, Any]:
+    """Create a backup of Home Assistant with the database and verify it.
+
+    ``addon``: the add-on that runs the database (MariaDB add-on); its data
+    is the database, so the backup includes it.
+    """
     manager = backup_mod.backup_manager(hass)
     if manager is None:
         raise SafetyError("backup_unavailable")
@@ -233,7 +247,7 @@ async def async_create_backup(hass: HomeAssistant) -> dict[str, Any]:
         await manager.async_create_backup(
             agent_ids=agent_ids,
             extra_metadata={BACKUP_META_KEY: BACKUP_META_VALUE},
-            include_addons=None,
+            include_addons=[addon] if addon else None,
             include_all_addons=False,
             include_database=True,
             include_folders=None,
@@ -249,7 +263,7 @@ async def async_create_backup(hass: HomeAssistant) -> dict[str, Any]:
         meta = getattr(backup, "extra_metadata", {}) or {}
         ours = meta.get(BACKUP_META_KEY) == BACKUP_META_VALUE or backup.name == name
         when = _when(backup)
-        if ours and when is not None and when >= started and _usable(backup):
+        if ours and when is not None and when >= started and _usable(backup, addon):
             _LOGGER.info("Safety backup %s created", backup.name)
             return _describe(backup, created=True)
     raise SafetyError("backup_not_verified")
@@ -271,14 +285,21 @@ async def async_plan(
     disk_free: int,
     backup_enabled: bool,
     backup_needed: bool = True,
+    server: bool = False,
+    addon: str | None = None,
 ) -> dict[str, Any]:
-    """What the chain would do, without doing it (for the preview)."""
+    """What the chain would do, without doing it (for the preview).
+
+    ``server``: MariaDB or PostgreSQL. Their deletions need room on the
+    database server, which Storage Manager cannot see; only what is written
+    here (the backup) is checked against this disk.
+    """
     use_backup = backup_enabled and backup_needed
-    recent = await async_recent_backup(hass) if use_backup else None
+    recent = await async_recent_backup(hass, addon=addon) if use_backup else None
     backup_bytes, backup_source = (
         await async_backup_size(hass, db_size) if use_backup and recent is None else (0, None)
     )
-    work = work_space(live_bytes, delete_bytes)
+    work = 0 if server else work_space(live_bytes, delete_bytes)
     need = work + backup_bytes
     manager = backup_mod.backup_manager(hass)
     agents = backup_targets(manager)[0] if manager is not None else []
@@ -305,6 +326,7 @@ async def async_plan(
             "work": work,
             "backup": backup_bytes,
             "backup_source": backup_source,
+            "server": server,
         },
         "integrity": integrity,
         "backup": backup,
@@ -322,20 +344,38 @@ async def async_run(
     disk_free: int,
     backup: bool,
     on_step: Callable[[str], None] | None = None,
+    server: bool = False,
+    emergency: bool = False,
+    addon: str | None = None,
 ) -> dict[str, Any]:
-    """Run the chain. Raises SafetyError when the deletion must not run."""
+    """Run the chain. Raises SafetyError when the deletion must not run.
+
+    ``server`` as in ``async_plan``: no work space on this disk.
+    ``emergency``: one small step of the emergency path; ``delete_bytes`` is
+    the largest step and the floor is EMERGENCY_MIN_FREE instead of MIN_FREE.
+    """
     steps: list[dict[str, Any]] = []
 
     def step(key: str) -> None:
         if on_step is not None:
             on_step(key)
 
-    recent = await async_recent_backup(hass) if backup else None
+    recent = await async_recent_backup(hass, addon=addon) if backup else None
     backup_bytes = (await async_backup_size(hass, db_size))[0] if backup and recent is None else 0
-    need = space_needed(live_bytes=live_bytes, delete_bytes=delete_bytes, backup_bytes=backup_bytes)
+    floor = EMERGENCY_MIN_FREE if emergency else MIN_FREE
+    need = backup_bytes if server else work_space(live_bytes, delete_bytes, floor) + backup_bytes
     if disk_free < need:
         raise SafetyError("no_space", f"{need}")
-    steps.append({"step": "space", "result": RESULT_OK, "need": need, "free": disk_free})
+    steps.append(
+        {
+            "step": "space",
+            "result": RESULT_OK,
+            "need": need,
+            "free": disk_free,
+            "server": server,
+            "emergency": emergency,
+        }
+    )
 
     step("integrity")
     integrity = await async_integrity(hass, path, store)
@@ -349,6 +389,6 @@ async def async_run(
     backup_info: dict[str, Any] | None = None
     if backup:
         step("backup")
-        backup_info = recent or await async_create_backup(hass)
+        backup_info = recent or await async_create_backup(hass, addon)
         steps.append({"step": "backup", "result": RESULT_OK, **backup_info})
     return {"steps": steps, "backup": backup_info}

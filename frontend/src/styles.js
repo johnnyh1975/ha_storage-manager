@@ -387,6 +387,13 @@ export const styles = css`
   .tag.ok { background: color-mix(in srgb, var(--success-color, #43a047) 22%, transparent); color: var(--primary-text-color); }
   .tag.live { background: color-mix(in srgb, var(--info-color, #039be5) 18%, transparent); color: var(--primary-text-color); }
   .source-line { margin: 6px 0 16px; }
+  section.card.emergency {
+    border: 2px solid color-mix(in srgb, var(--error-color, #db4437) 70%, transparent);
+  }
+  section.card.emergency h2 ha-icon { color: var(--error-color, #db4437); }
+  ol.emergency-steps { padding-left: 0; list-style: none; display: grid; gap: 16px; margin: 12px 0; }
+  ol.emergency-steps > li { display: grid; gap: 6px; justify-items: start; }
+  ol.emergency-steps .t { font-weight: 500; }
   .window-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin-top: 8px; }
   .window-form label { display: grid; gap: 4px; font-size: 12px; color: var(--secondary-text-color); }
   .window-form input {

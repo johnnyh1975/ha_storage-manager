@@ -148,8 +148,8 @@ async def test_statistics_age_follows_the_plan(hass: HomeAssistant) -> None:
     current = AsyncMock(side_effect=[shown, later, shown])
     deleted = AsyncMock(return_value=10)
     with (
-        patch.object(coordinator, "async_statistics_age_current", current),
-        patch.object(coordinator, "async_delete_old_statistics", deleted),
+        patch.object(coordinator.statistics_age, "async_current", current),
+        patch.object(coordinator.statistics_age, "async_delete", deleted),
         patch.object(coordinator, "async_safety", AsyncMock(return_value={})),
         patch.object(coordinator.undo, "async_protect", AsyncMock(return_value=None)),
     ):
@@ -225,9 +225,9 @@ async def test_statistics_age_run_holds_the_lock(hass: HomeAssistant) -> None:
         return 2
 
     with (
-        patch.object(coordinator, "statistics_retention", return_value={"active": True}),
-        patch.object(coordinator, "async_statistics_age_current", AsyncMock(return_value=plan)),
-        patch.object(coordinator, "async_delete_old_statistics", side_effect=delete),
+        patch.object(coordinator.statistics_age, "status", return_value={"active": True}),
+        patch.object(coordinator.statistics_age, "async_current", AsyncMock(return_value=plan)),
+        patch.object(coordinator.statistics_age, "async_delete", side_effect=delete),
     ):
         assert await coordinator.async_run_statistics_age() == 2
     assert seen == [(True, "statistics_age")]

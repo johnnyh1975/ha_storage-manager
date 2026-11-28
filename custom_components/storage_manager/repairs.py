@@ -22,6 +22,7 @@ from .const import (
     ISSUE_LOW_SPACE,
     ISSUE_PACKAGES,
     ISSUE_RESTART,
+    ISSUE_SCHEMA,
     PANEL_URL_PATH,
 )
 from .recorder_config import packages_snippet
@@ -131,6 +132,25 @@ def async_update_issues(hass: HomeAssistant, coordinator: StorageCoordinator) ->
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_DATABASE_DAMAGED)
 
+    schema = coordinator.schema
+    # columns missing: a repair; a check that could not run is retried with
+    # every update and shown in the panel only
+    if schema is not None and not schema["ok"] and schema["missing"]:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_SCHEMA,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_SCHEMA,
+            translation_placeholders={
+                "missing": ", ".join(schema["missing"][:8]),
+                "version": str(schema.get("version") or "-"),
+            },
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_SCHEMA)
+
     writers = coordinator.store.data.heavy_writers or []
     if writers:
         ir.async_create_issue(
@@ -163,6 +183,7 @@ def async_clear_issues(hass: HomeAssistant) -> None:
         ISSUE_PACKAGES,
         ISSUE_DATABASE_DAMAGED,
         ISSUE_HEAVY_WRITERS,
+        ISSUE_SCHEMA,
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 

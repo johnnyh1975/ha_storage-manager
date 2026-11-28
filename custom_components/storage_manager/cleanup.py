@@ -23,6 +23,7 @@ from .targets import (
     ALL_CLEAN_TARGETS,
     DB_DELETE_TARGETS,
     LOG_IDS_MAX,
+    Target,
 )
 from .targets import (
     chosen as _chosen,
@@ -50,8 +51,11 @@ class Selection:
 
     orphans: list[str] = field(default_factory=list)
     orphan_bytes: int = 0
+    # per item, for the steps of the emergency path
+    orphan_sizes: dict[str, int] = field(default_factory=dict)
     statistics: list[str] = field(default_factory=list)
     statistics_bytes: int = 0
+    statistics_sizes: dict[str, int] = field(default_factory=dict)
     unused: list[dict[str, Any]] = field(default_factory=list)
     dead: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -68,6 +72,17 @@ class Selection:
             "dead": [i["entity_id"] for i in self.dead],
             "events": [e["event_type"] for e in self.events],
         }
+
+
+# what the emergency path deletes, one entity at a time and events in chunks
+EMERGENCY_TARGETS = frozenset({Target.ORPHANS, Target.EVENTS})
+
+
+def _largest_step(sel: Selection) -> int:
+    """Bytes of the largest single item (capped at a batch by the caller)."""
+    sizes = [*sel.orphan_sizes.values()]
+    sizes += [int(e.get("est_bytes") or 0) for e in sel.events]
+    return max(sizes, default=0)
 
 
 def _bound(planned: list[str] | None, valid: list[str]) -> list[str]:
@@ -131,11 +146,12 @@ class CleanupService:
             else:
                 sel.orphans = _chosen(entity_ids if "dead" not in targets else None, valid)
             entities = analysis.get("entities") or {}
-            sel.orphan_bytes = sum(
-                int(entities[e].get("est_state_bytes", entities[e].get("est_bytes", 0)))
+            sel.orphan_sizes = {
+                e: int(entities[e].get("est_state_bytes", entities[e].get("est_bytes", 0)))
                 for e in sel.orphans
                 if e in entities
-            )
+            }
+            sel.orphan_bytes = sum(sel.orphan_sizes.values())
         if "statistics" in targets:
             valid = c.orphans()["statistics"]
             sel.statistics = (
@@ -144,9 +160,10 @@ class CleanupService:
                 else _chosen(statistic_ids, valid)
             )
             known = analysis.get("statistics") or {}
-            sel.statistics_bytes = sum(
-                int((known.get(i) or {}).get("est_bytes") or 0) for i in sel.statistics
-            )
+            sel.statistics_sizes = {
+                i: int((known.get(i) or {}).get("est_bytes") or 0) for i in sel.statistics
+            }
+            sel.statistics_bytes = sum(sel.statistics_sizes.values())
         if "unused_statistics" in targets:
             wanted = plan.get("unused_statistics") if plan is not None else statistic_ids
             sel.unused = (
@@ -305,22 +322,37 @@ class CleanupService:
         convert: bool = True,
         event_types: list[str] | None = None,
         plan_id: str | None = None,
+        emergency: bool = False,
     ) -> dict[str, Any]:
         """Execute cleanup targets. Returns freed bytes per target.
 
         Order: what frees space without touching the database first, then
         the safety chain, then deletions in the database, then the repack.
         With ``plan_id`` (from the preview) only what the preview showed goes.
+
+        ``emergency`` (the disk is nearly full): the database targets are
+        deleted one entity, statistic or event type at a time, with a work
+        space for the largest single step and without a backup or undo; the
+        person confirmed that. Only below EMERGENCY_BELOW free space.
         """
         unknown = set(targets) - set(ALL_CLEAN_TARGETS)
         if unknown:
             raise HomeAssistantError(f"Unknown cleanup targets: {', '.join(sorted(unknown))}")
+        if emergency:
+            if not set(targets) <= EMERGENCY_TARGETS:
+                raise HomeAssistantError("emergency_targets")
+            if database.on_server(self._c.hass):
+                # deleting on another machine frees nothing here
+                raise HomeAssistantError("emergency_server")
         plan = self._take_plan(plan_id, targets) if plan_id is not None else None
         if self._c.lock.locked():
             raise HomeAssistantError("Another cleanup is running")
         async with self._c.lock:
             await self._c.async_refresh()
             before = self._c.data["disk"]["free"] if self._c.data else 0
+            if emergency and (not self._c.last_update_success or before >= safety.EMERGENCY_BELOW):
+                # fresh numbers only; with room enough the normal chain with backup applies
+                raise HomeAssistantError("emergency_not_needed")
             results: dict[str, Any] = {}
             errors: list[str] = []
             deleted: dict[str, Any] = {}
@@ -339,15 +371,34 @@ class CleanupService:
                     event_types=event_types,
                     plan=plan,
                 )
+                if emergency:
+                    # only event types that are no longer recorded
+                    sel.events = [e for e in sel.events if e.get("excluded")]
                 if db_targets or "repack" in targets:
                     try:
+                        # a repack alone uses no table of the recorder
+                        schema: dict[str, Any] = (
+                            await self._c.async_schema() if db_targets else {"ok": True}
+                        )
+                        if not schema["ok"]:
+                            # a recorder schema this version does not know: no own SQL
+                            raise safety.SafetyError(
+                                "schema_unknown",
+                                ", ".join(schema["missing"]) or schema.get("error", ""),
+                            )
                         if db_targets:
                             estimate = self._delete_estimate(db_targets, sel)
-                            planned = self._c.undo.planned(db_targets)
+                            # no room for a backup or an undo file in an emergency
+                            planned = self._c.undo.planned(db_targets) and not emergency
                             safety_result = await self._c.async_safety(
-                                skip_backup=skip_backup or planned,
-                                delete_bytes=estimate,
+                                skip_backup=skip_backup or planned or emergency,
+                                delete_bytes=(
+                                    min(_largest_step(sel), safety.EMERGENCY_STEP_BYTES)
+                                    if emergency
+                                    else estimate
+                                ),
                                 backup_needed=_needs_backup(db_targets),
+                                emergency=emergency,
                             )
                             if planned:
                                 spec = self._c.undo.spec_for(db_targets, sel)
@@ -361,10 +412,15 @@ class CleanupService:
                 if blocked is None and db_targets:
                     await self._c.store.async_mark_running("cleanup", {"targets": db_targets})
                 if blocked is None:
-                    await self._clean_database(db_targets, sel, results, deleted)
+                    await self._clean_database(
+                        db_targets, sel, results, deleted, steps=emergency, errors=errors
+                    )
                     if "unused_statistics" in db_targets:
                         await self._clean_unused_statistics(sel, results, deleted, errors)
                     if "events" in db_targets:
+                        if emergency and await self._free_now() < safety.EMERGENCY_MIN_FREE:
+                            errors.append("stopped: too little free space for the next step")
+                            sel.events = []
                         await self._clean_events(sel, results, deleted)
                     if "dead" in db_targets:
                         await self._clean_dead(sel, results, deleted)
@@ -399,6 +455,8 @@ class CleanupService:
                 details: dict[str, Any] = {"targets": targets, "results": results, "errors": errors}
                 if failure is not None:
                     details["failed"] = str(failure)[:200] or type(failure).__name__
+                if emergency:
+                    details["emergency"] = True
                 if deleted:
                     details["deleted"] = deleted
                 if backup_info:
@@ -423,6 +481,13 @@ class CleanupService:
                 "backup": backup_info,
                 "undo": undo_info if blocked is None else None,
             }
+
+    async def _free_now(self) -> int:
+        """Free space on this disk right now (between the steps of the emergency path)."""
+        usage = await self._c.hass.async_add_executor_job(
+            disk.local_disk_usage, self._c.hass.config.config_dir
+        )
+        return int(usage["free"])
 
     def _delete_estimate(self, db_targets: list[str], sel: Selection) -> int:
         """Bytes the database targets are expected to delete."""
@@ -507,13 +572,36 @@ class CleanupService:
         sel: Selection,
         results: dict[str, Any],
         deleted: dict[str, Any],
+        *,
+        steps: bool = False,
+        errors: list[str] | None = None,
     ) -> None:
         if "orphans" in db_targets:
             self._c.set_busy("orphans")
-            await database.async_purge_entities(self._c.hass, sel.orphans, 0)
-            results["orphans"] = sel.orphan_bytes
-            deleted["entities"] = sel.orphans[:LOG_IDS_MAX]
-            self._c.drop_from_analysis(sel.orphans)
+            if steps:
+                # one entity at a time, the free space read before each: a
+                # step needs only its own room, and none starts below the floor
+                done: list[str] = []
+                for entity_id in sel.orphans:
+                    self._c.set_busy(f"orphans:{len(done) * 100 // len(sel.orphans)}")
+                    if await self._free_now() < safety.EMERGENCY_MIN_FREE:
+                        if errors is not None:
+                            errors.append("stopped: too little free space for the next step")
+                        break
+                    await database.async_purge_entities(self._c.hass, [entity_id], 0)
+                    await database.async_wait_idle(self._c.hass)
+                    done.append(entity_id)
+                results["orphans"] = sum(sel.orphan_sizes.get(e, 0) for e in done)
+                deleted["entities"] = done[:LOG_IDS_MAX]
+                self._c.drop_from_analysis(done)
+                if len(done) < len(sel.orphans):
+                    # what is left must not be deleted by the event step either
+                    sel.events = []
+            else:
+                await database.async_purge_entities(self._c.hass, sel.orphans, 0)
+                results["orphans"] = sel.orphan_bytes
+                deleted["entities"] = sel.orphans[:LOG_IDS_MAX]
+                self._c.drop_from_analysis(sel.orphans)
         if "statistics" in db_targets:
             self._c.set_busy("statistics")
             await database.async_clear_statistics(self._c.hass, sel.statistics)

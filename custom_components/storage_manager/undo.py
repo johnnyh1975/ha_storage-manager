@@ -38,7 +38,11 @@ from sqlalchemy.orm import Session
 
 _LOGGER = logging.getLogger(__name__)
 
-FORMAT = 1
+# 2 (1.5): NULL values are left out of the rows, and the header lists the
+# columns of every table at export. Files of format 1 still restore; a
+# version that knows only 1 refuses format 2 instead of failing halfway.
+FORMAT = 2
+READABLE_FORMATS = frozenset({1, 2})
 UNDO_DIR = ".storage/storage_manager/undo"
 SUFFIX = ".ndjson.gz"
 PAGE = 5000
@@ -128,14 +132,42 @@ def _decode(value: Any) -> Any:
     return value
 
 
+# values JSON takes as they are; everything else goes through _encode
+_PLAIN = frozenset({str, int, float, bool})
+
+
 def _row(mapping: Any, skip: tuple[str, ...]) -> dict[str, Any]:
-    return {k: _encode(v) for k, v in mapping.items() if k not in skip}
+    """A row for the file: NULL columns left out (they come back as NULL).
+
+    Millions of rows pass through here, so the common values skip _encode.
+    """
+    return {
+        k: v if type(v) in _PLAIN else _encode(v)
+        for k, v in mapping.items()
+        if v is not None and k not in skip
+    }
 
 
-def _columns(table: Any, row: dict[str, Any], skip: tuple[str, ...] = ()) -> dict[str, Any]:
-    """Only the columns the current schema has, decoded."""
-    names = {c.name for c in table.__table__.c}
-    return {k: _decode(v) for k, v in row.items() if k in names and k not in skip}
+def _columns(
+    table: Any, row: dict[str, Any], known: set[str], skip: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """The columns the current schema has, decoded, the key aside.
+
+    ``known``: the columns the file's schema had. One the row leaves out was
+    NULL there (the export skips NULL values) and is NULL again, so that a
+    batch insert has the same columns in every row. A column the file's
+    schema did not have yet is left out, so its default applies.
+    """
+    out: dict[str, Any] = {}
+    for column in table.__table__.c:
+        name = column.name
+        if column.primary_key or name in skip:
+            continue
+        if name in row:
+            out[name] = _decode(row[name])
+        elif name in known:
+            out[name] = None
+    return out
 
 
 # ----------------------------------------------------------------------
@@ -305,6 +337,11 @@ def export(session: Session, path: Path, spec: Spec) -> dict[str, Any]:
                 "kind": "header",
                 "format": FORMAT,
                 "schema": SCHEMA_VERSION,
+                # what the rows had, NULL included (the rows leave NULL out)
+                "columns": {
+                    kind: sorted(c.name for c in table.__table__.c)
+                    for kind, table in _tables().items()
+                },
                 "created": time.time(),
                 "spec": spec.as_dict(),
             },
@@ -501,8 +538,12 @@ def read_header(path: Path) -> tuple[dict[str, Any], dict[str, int], dict[str, s
                 columns.setdefault(kind, set()).update(line["r"])
     if header is None or end is None or end.get("rows") != counted:
         raise UndoError("incomplete")
-    if header.get("format") != FORMAT:
+    if header.get("format") not in READABLE_FORMATS:
         raise UndoError("format", str(header.get("format")))
+    listed = header.get("columns")
+    if isinstance(listed, dict):
+        # format 2: the columns at export; the rows leave NULL values out
+        columns = {kind: set(names) for kind, names in listed.items() if kind in counted}
     return header, counted, columns
 
 
@@ -627,7 +668,7 @@ def restore(session: Session, path: Path) -> dict[str, Any]:
                 session, StatesMeta, StatesMeta.metadata_id, {"entity_id": entity_id}
             ) or _insert_one(session, StatesMeta, {"entity_id": entity_id})
         elif kind == "attr":
-            values = _columns(StateAttributes, line["r"])
+            values = _columns(StateAttributes, line["r"], columns.get("attr", set()))
             attrs[int(line["id"])] = _lookup(
                 session,
                 StateAttributes,
@@ -635,7 +676,7 @@ def restore(session: Session, path: Path) -> dict[str, Any]:
                 {"hash": values.get("hash"), "shared_attrs": values.get("shared_attrs")},
             ) or _insert_one(session, StateAttributes, values)
         elif kind == "smeta":
-            values = _columns(StatisticsMeta, line["r"])
+            values = _columns(StatisticsMeta, line["r"], columns.get("smeta", set()))
             smeta[int(line["id"])] = _lookup(
                 session, StatisticsMeta, StatisticsMeta.id, {"statistic_id": values["statistic_id"]}
             ) or _insert_one(session, StatisticsMeta, values)
@@ -645,7 +686,7 @@ def restore(session: Session, path: Path) -> dict[str, Any]:
                 session, EventTypes, EventTypes.event_type_id, {"event_type": event_type}
             ) or _insert_one(session, EventTypes, {"event_type": event_type})
         elif kind == "edata":
-            values = _columns(EventData, line["r"])
+            values = _columns(EventData, line["r"], columns.get("edata", set()))
             edata[int(line["id"])] = _lookup(
                 session,
                 EventData,
@@ -662,7 +703,9 @@ def restore(session: Session, path: Path) -> dict[str, Any]:
     for line in _lines(path):
         kind = line.get("t")
         if kind == "state":
-            values = _columns(States, line["r"], ("state_id", "old_state_id"))
+            values = _columns(
+                States, line["r"], columns.get("state", set()), ("state_id", "old_state_id")
+            )
             values["metadata_id"] = meta[int(line["m"])]
             values["attributes_id"] = (
                 attrs.get(int(line["a"])) if line.get("a") is not None else None
@@ -670,11 +713,11 @@ def restore(session: Session, path: Path) -> dict[str, Any]:
             states.add(values)
         elif kind in ("stat", "stst"):
             table = Statistics if kind == "stat" else StatisticsShortTerm
-            values = _columns(table, line["r"], ("id",))
+            values = _columns(table, line["r"], columns.get(kind, set()), ("id",))
             values["metadata_id"] = smeta[int(line["m"])]
             (stats if kind == "stat" else short).add(values)
         elif kind == "event":
-            values = _columns(Events, line["r"], ("event_id",))
+            values = _columns(Events, line["r"], columns.get("event", set()), ("event_id",))
             values["event_type_id"] = etypes[int(line["ty"])]
             values["data_id"] = edata.get(int(line["d"])) if line.get("d") is not None else None
             events.add(values)

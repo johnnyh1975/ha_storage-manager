@@ -216,7 +216,15 @@ async def test_refusals(hass: HomeAssistant, tmp_path) -> None:
         if line.get("t") == "state":
             line["r"].pop("last_updated_ts", None)
         stripped.append(json.dumps(line).encode())
-    broken_columns = write("columns.gz", [lines[0], *stripped])
+    # a schema without the column: its header does not list it either
+    old_header = {
+        **header,
+        "columns": {
+            **header["columns"],
+            "state": [c for c in header["columns"]["state"] if c != "last_updated_ts"],
+        },
+    }
+    broken_columns = write("columns.gz", [json.dumps(old_header).encode(), *stripped])
     info = undo.describe(broken_columns)
     assert info["schema_ok"] is False
     assert info["missing"] == ["states.last_updated_ts"]

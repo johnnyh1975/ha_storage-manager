@@ -30,6 +30,21 @@ const lang = params.get("lang") || "en";
 const fixtures = await (await fetch("/fixtures.json")).json();
 // the recorded instance sets some recorder keys in YAML; a test can lift that
 if (params.get("unlocked")) fixtures.overview.data.recorder.locked_settings = {};
+// a nearly full disk: the overview offers the emergency path
+if (params.get("emergency")) {
+  fixtures.overview.data.emergency = true;
+  const orphans = fixtures.entities.rows.filter((r) => r.orphan).slice(0, 12);
+  fixtures.emergency_plan = {
+    active: true, free: 300 * 1024 ** 2, total: 32 * 1024 ** 3, below: 1024 ** 3, step_floor: 64 * 1024 ** 2,
+    files: 57 * 1024 ** 2, backups: 0, rotation: false, docker: false, server: false,
+    orphans: orphans.map((r) => ({ entity_id: r.entity_id, bytes: r.est_bytes })),
+    orphan_bytes: orphans.reduce((a, r) => a + r.est_bytes, 0),
+    events: [{ event_type: "demo_noise", rows: 30, bytes: 3550 }], event_bytes: 3550,
+    repack: fixtures.overview.data.database.repack, repack_possible: true,
+  };
+}
+// a recorder schema this version does not know
+if (params.get("schema")) fixtures.overview.data.database.schema = { ok: false, missing: ["states.state_id"], version: 99 };
 const calls = [];
 window.__calls = calls;
 // what the panel's changes answer: enough for the flows, nothing is changed

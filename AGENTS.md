@@ -13,3 +13,6 @@ Storage Manager deletes data. These rules exist so that it never deletes the wro
 7. **Panel changes are rebuilt.** Edit `frontend/src`, run `npm run build` in `frontend/`, commit the bundle.
 8. **Releases are the maintainer's job.** Pull requests do not bump versions or add `release-notes/` files.
 9. **Typing.** `mypy --strict` must pass without ignores in the integration code.
+10. **Services stay services.** `cleanup.py`, `undo_service.py`, `dead.py`, `statistics_age.py` and `recorder_settings.py` use only the coordinator's public methods; `scripts/check_consistency.py` refuses `self._c._private`. New functions go into a module of their own, not into the coordinator.
+11. **Every engine.** Own SQL must run on SQLite, MariaDB and PostgreSQL (CI runs the suite on all three; locally with `--dburl`). Behaviour that exists only on SQLite is tested with `@pytest.mark.sqlite_only`. A new table or column in own SQL goes into `database.SCHEMA_NEEDS`.
+12. **Panel tests.** A change in the panel keeps `npm test` in `frontend/` green, including axe on every tab in the light and dark theme.

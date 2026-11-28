@@ -141,6 +141,7 @@ async def test_pause_between_chunks(hass: HomeAssistant) -> None:
     sleep.assert_called_with(0.01)
 
 
+@pytest.mark.sqlite_only
 async def test_table_sizes_cache(hass: HomeAssistant) -> None:
     """SQLite table sizes are reused for a day unless forced."""
     await setup_entry(hass)

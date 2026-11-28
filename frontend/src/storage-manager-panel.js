@@ -66,6 +66,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _whatif: { state: true },
     _unused: { state: true },
     _unusedOpen: { state: true },
+    _emergency: { state: true },
     _folds: { state: true },
     _dead: { state: true },
     _deadSel: { state: true },
@@ -251,13 +252,23 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     } catch (err) {
       this._error = err.message || String(err);
     }
+    if (this._overview?.data?.emergency) await this._loadEmergency();
+    else this._emergency = undefined;
+  }
+
+  async _loadEmergency() {
+    try {
+      this._emergency = await this._ws("emergency_plan");
+    } catch (err) {
+      this._emergency = undefined;
+    }
   }
 
   async _loadEntities() {
     try {
       this._entities = await this._ws("entities");
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     }
   }
 
@@ -340,7 +351,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     try {
       this._backups = await this._ws("backups");
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     }
   }
 
@@ -383,7 +394,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       this._statsRet = await this._ws("statistics_retention", { stats_months: d.stats ?? null, energy_months: d.energy ?? null });
       this._showToast(this.t("stats_ret_saved"));
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
       return;
     } finally {
       this._working = null;
@@ -408,7 +419,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       this._folder = await this._ws("folder_scan", { root });
       await this._loadFolders();
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     } finally {
       this._working = null;
     }
@@ -418,7 +429,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     try {
       this._folder = await this._ws("folder_browse", { root: this._folder.root, path });
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     }
   }
 
@@ -438,6 +449,13 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     } finally {
       this._working = null;
     }
+  }
+
+  _errorText(err) {
+    // known error codes from the backend have a text of their own
+    const key = `err_${err?.message}`;
+    const text = this.t(key);
+    return text !== key ? text : this.t("error", { msg: err?.message });
   }
 
   _showToast(text) {
@@ -466,7 +484,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (extra.entity_ids) select.entity_ids = extra.entity_ids;
       preview = await this._ws("preview", { targets, ...select });
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
       return;
     }
     const items = [];
@@ -555,7 +573,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (this._dead) await this._loadDead();
       if (this._tab === "backups") await this._loadBackups();
     } catch (err) {
-      this._showToast(err.message === "plan_expired" ? this.t("plan_expired") : this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     } finally {
       this._working = null;
     }
@@ -568,7 +586,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (res.cancelled) this._showToast(this.t("analysis_stopped"));
       await Promise.all([this._loadOverview(), this._loadEntities()]);
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     } finally {
       this._working = null;
     }
@@ -590,7 +608,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       this._showToast(this.t("gui_recorder_done", { n: res.imported }));
       await Promise.all([this._loadOverview(), this._loadEntities()]);
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     }
   }
 
@@ -649,7 +667,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     try {
       preview = await this._ws("apply_preview", { retention, excluded });
     } catch (err) {
-      this._showToast(t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
       return;
     }
     const shown = changes.slice(0, 8);
@@ -685,7 +703,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       await Promise.all([this._loadOverview(), this._loadEntities()]);
       if (res.packages_missing) this._showToast(this.t("packages_banner"));
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(this._errorText(err));
     } finally {
       this._working = null;
     }
@@ -765,6 +783,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     const lowSpace = 100 - d.percent_used < this._overview.options.low_space_percent;
     const soonFull = fc.days_until_full !== null && fc.days_until_full < this._overview.options.forecast_warning_days;
     return html`
+      ${this._renderEmergency()}
       ${lowSpace || soonFull
         ? html`<div class="banner"><ha-icon icon="mdi:harddisk-remove"></ha-icon>
             <div class="txt">${!lowSpace
@@ -842,6 +861,74 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         </div>
       </div>
     `;
+  }
+
+  // ------------------------------------------------------------- emergency
+
+  _renderEmergency() {
+    // the disk is nearly full: three steps, from harmless to the database
+    const e = this._emergency;
+    if (!e?.active) return nothing;
+    const t = this.t;
+    const busy = !!this._working;
+    const outside = e.files + (e.rotation ? e.backups : 0);
+    const dbItems = e.orphans.length + e.events.length;
+    return html`<section class="card emergency" aria-labelledby="emergency-title">
+      <h2 id="emergency-title"><ha-icon icon="mdi:harddisk-remove"></ha-icon>${t("emergency_title")}</h2>
+      <p>${t("emergency_intro", { free: bytes(e.free, this.lang), total: bytes(e.total, this.lang) })}</p>
+      <ol class="emergency-steps">
+        <li>
+          <div class="t">${t("emergency_step1")}</div>
+          <div class="muted small">${outside
+            ? t("emergency_step1_amount", { bytes: bytes(outside, this.lang) })
+            : t("emergency_step1_none")}${!e.rotation && e.backups ? html` ${t("emergency_rotation_off")}` : nothing}${e.docker ? html` ${t("emergency_docker")}` : nothing}</div>
+          <button class="btn primary" ?disabled=${busy || (!outside && !e.docker)} aria-label=${t("emergency_step1_preview")}
+            @click=${() => this._previewAndClean([...this._safeTargets(), ...(e.docker ? ["docker"] : [])])}>${t("preview")}</button>
+        </li>
+        ${e.server
+          ? html`<li><div class="t">${t("emergency_server")}</div></li>`
+          : html`<li>
+              <div class="t">${t("emergency_step2")}</div>
+              <div class="muted small">${dbItems
+                ? t("emergency_step2_amount", { n: dbItems, bytes: bytes(e.orphan_bytes + e.event_bytes, this.lang) })
+                : t("emergency_step2_none")}</div>
+              ${dbItems
+                ? html`<ul class="group-members">${e.orphans.slice(0, 5).map(
+                    (o) => html`<li>${o.entity_id} <span class="muted small">${bytes(o.bytes, this.lang)}</span></li>`
+                  )}${e.events.slice(0, 3).map(
+                    (o) => html`<li><code>${o.event_type}</code> <span class="muted small">${bytes(o.bytes, this.lang)}</span></li>`
+                  )}${dbItems > 8 ? html`<li class="muted">${t("more_n", { n: dbItems - Math.min(e.orphans.length, 5) - Math.min(e.events.length, 3) })}</li>` : nothing}</ul>`
+                : nothing}
+              <button class="btn danger" ?disabled=${busy || !dbItems} @click=${() => this._confirmEmergency(e)}>${t("emergency_step2_button")}</button>
+            </li>
+            <li>
+              <div class="t">${t("emergency_step3")}</div>
+              <div class="muted small">${this._repackPlanText(e.repack)}</div>
+              <button class="btn" ?disabled=${busy || !e.repack_possible} aria-label=${t("emergency_step3_preview")}
+                @click=${() => this._previewAndClean(["repack"])}>${t("preview")}</button>
+            </li>`}
+      </ol>
+      ${e.server ? nothing : html`<p class="muted small">${t("emergency_note")}</p>`}
+    </section>`;
+  }
+
+  _confirmEmergency(e) {
+    const t = this.t;
+    const n = e.orphans.length + e.events.length;
+    this._dialog = {
+      title: t("emergency_confirm_title"),
+      body: html`<p>${t("emergency_confirm_body", { n, bytes: bytes(e.orphan_bytes + e.event_bytes, this.lang) })}</p>
+        <p><b>${t("emergency_confirm_no_backup")}</b></p>`,
+      confirm: t("emergency_step2_button"),
+      danger: true,
+      typed: n,
+      action: () =>
+        this._clean([...(e.orphans.length ? ["orphans"] : []), ...(e.events.length ? ["events"] : [])], {
+          emergency: true,
+          entity_ids: e.orphans.map((o) => o.entity_id),
+          event_types: e.events.map((o) => o.event_type),
+        }),
+    };
   }
 
   _safeTargets() {
