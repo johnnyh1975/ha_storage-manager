@@ -125,16 +125,28 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (TABS.includes(hash) && hash !== this._tab) this._setTab(hash, false);
     };
     window.addEventListener("hashchange", this._hashListener);
+    // Escape closes the open dialog, then the detail sheet, wherever the focus is
+    this._keyListener = (e) => {
+      if (e.key !== "Escape") return;
+      if (this._dialog) this._dialog = undefined;
+      else if (this._detail) this._detail = undefined;
+      else return;
+      e.stopPropagation();
+    };
+    this.addEventListener("keydown", this._keyListener);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener("hashchange", this._hashListener);
+    this.removeEventListener("keydown", this._keyListener);
     this._unsubscribe?.then((unsub) => unsub()).catch(() => {});
     this._unsubscribe = undefined;
   }
 
   updated(changed) {
+    this._manageFocus(changed, "_dialog", ".dialog label.typed input, .dialog .actions .btn");
+    this._manageFocus(changed, "_detail", ".sheet .icon-btn");
     if (changed.has("_tab") || changed.has("_overview")) {
       // on narrow screens the tab row scrolls: keep the active tab in view
       const active = this.renderRoot?.querySelector('nav.tabs [aria-selected="true"]');
@@ -151,6 +163,22 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       this._unsubscribe = this.hass.connection
         .subscribeMessage(() => this._scheduleReload(), { type: `${DOMAIN}/subscribe` })
         .catch(() => undefined);
+    }
+  }
+
+  _manageFocus(changed, key, selector) {
+    // move the focus into a dialog when it opens and back to where it came from
+    if (!changed.has(key)) return;
+    const was = changed.get(key);
+    const now = this[key];
+    if (now && !was) {
+      if (key === "_dialog") this._typedValue = "";
+      this._returnFocus = this._returnFocus || this.renderRoot.activeElement;
+      this.renderRoot.querySelector(selector)?.focus();
+    } else if (!now && was) {
+      const back = this._returnFocus;
+      this._returnFocus = undefined;
+      if (back?.isConnected) back.focus();
     }
   }
 
@@ -216,6 +244,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         <ul>${rows.map(([k, n]) => html`<li>${t(`undo_rows_${k}`, { n: number(n, this.lang) })}</li>`)}</ul>
         ${p.enable.length ? html`<p>${t("undo_enable", { n: p.enable.length })}</p>` : nothing}
         ${p.statistics_on.length ? html`<p>${t("undo_statistics_on", { n: p.statistics_on.length })}</p>` : nothing}
+        ${Object.keys(p.retention || {}).length ? html`<p>${t("undo_retention", { n: Object.keys(p.retention).length })}</p>` : nothing}
+        ${(p.include || []).length ? html`<p>${t("undo_include", { n: p.include.length })}</p>` : nothing}
+        ${p.statistics_limits ? html`<p>${t("undo_statistics_limits")}</p>` : nothing}
         ${p.undone ? html`<p class="muted small">${t("undo_again")}</p>` : nothing}
         ${p.schema_changed && p.schema_ok ? html`<p class="muted small">${t("undo_schema_changed")}</p>` : nothing}
         <p class="muted small">${t("undo_note")}</p>
@@ -533,32 +564,48 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   }
 
   async _applyDraft() {
+    const t = this.t;
     const retention = {};
     const excluded = {};
+    const changes = [];
     for (const [entityId, { value, row }] of this._draft) {
       const wasExcluded = row.excluded;
+      const before = wasExcluded ? "excluded" : row.tier;
       if (value === "excluded") {
         if (!wasExcluded) excluded[entityId] = true;
       } else {
         if (wasExcluded) excluded[entityId] = false;
         if (value !== row.tier) retention[entityId] = value;
       }
+      if (value !== before) changes.push({ name: row.name || entityId, before, after: value });
     }
     const count = new Set([...Object.keys(retention), ...Object.keys(excluded)]).size;
-    if (count >= TYPED_FROM) {
-      this._dialog = {
-        title: this.t("confirm_title"),
-        body: html`<p>${this.t("apply_many", { n: count })}</p>`,
-        typed: count,
-        confirm: this.t("apply"),
-        danger: true,
-        action: () => this._sendApply({ retention, excluded, purge_now: true }),
-      };
+    if (!count) return;
+    let preview;
+    try {
+      preview = await this._ws("apply_preview", { retention, excluded });
+    } catch (err) {
+      this._showToast(t("error", { msg: err.message }));
       return;
     }
-    await this._sendApply({ retention, excluded, purge_now: true });
+    const shown = changes.slice(0, 8);
+    this._dialog = {
+      title: t("confirm_title"),
+      body: html`<p>${t("apply_summary", { n: count })}</p>
+        <ul class="changes">${shown.map(
+          (c) => html`<li>${c.name}: ${this._tierLabel(c.before)} → <b>${this._tierLabel(c.after)}</b></li>`
+        )}${changes.length > shown.length ? html`<li class="muted">${t("apply_more", { n: changes.length - shown.length })}</li>` : nothing}</ul>
+        ${preview.entities
+          ? html`<p><b>${t("apply_deletes", { n: preview.entities, bytes: bytes(preview.bytes, this.lang) })}</b></p>
+              ${this._safetyItems(preview.safety)}`
+          : html`<p>${t("apply_no_delete")}</p>`}
+        ${count >= TYPED_FROM ? html`<p>${t("apply_many", { n: count })}</p>` : nothing}`,
+      typed: count >= TYPED_FROM ? count : undefined,
+      confirm: t("apply"),
+      danger: !!preview.entities,
+      action: () => this._sendApply({ retention, excluded, purge_now: true }),
+    };
   }
-
   async _sendApply(payload) {
     this._working = "apply";
     try {
@@ -658,7 +705,11 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
             <div class="txt">${!lowSpace
               ? t("forecast_banner", { days: Math.round(fc.days_until_full) })
               : data.reclaimable.total > 0
-              ? t("low_space_banner", { free: bytes(d.free, this.lang), reclaim: bytes(data.reclaimable.total, this.lang) })
+              ? t("low_space_banner", {
+                  free: bytes(d.free, this.lang),
+                  reclaim: bytes(data.reclaimable.total, this.lang),
+                  safe: bytes(data.reclaimable.files + data.reclaimable.backups, this.lang),
+                })
               : t("low_space_banner_db", { free: bytes(d.free, this.lang) })}</div>
             ${data.reclaimable.files + data.reclaimable.backups > 0
               ? html`<button class="btn primary" ?disabled=${!!this._working}
@@ -688,7 +739,10 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       <div class="card">
         <h2 class="wrap">${t("reclaim_title")}<span class="spacer"></span>
           ${data.reclaimable.total > 0
-            ? html`<span class="muted small">${t("reclaim_total", { bytes: bytes(data.reclaimable.total, this.lang) })}</span>`
+            ? html`<span class="muted small">${t("reclaim_total", {
+                bytes: bytes(data.reclaimable.total, this.lang),
+                safe: bytes(data.reclaimable.files + data.reclaimable.backups, this.lang),
+              })}</span>`
             : nothing}
           ${data.retention_potential?.bytes
             ? html`<span class="muted small">&nbsp;· ${t("reclaim_retention", { bytes: bytes(data.retention_potential.bytes, this.lang) })}</span>`
@@ -1035,13 +1089,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
 
   _renderDialog() {
     const d = this._dialog;
-    if (!d) {
-      this._typedValue = "";
-      return nothing;
-    }
+    if (!d) return nothing;
     const close = () => (this._dialog = undefined);
-    return html`<div class="scrim" @click=${(e) => e.target === e.currentTarget && close()}
-      @keydown=${(e) => e.key === "Escape" && close()}>
+    return html`<div class="scrim" @click=${(e) => e.target === e.currentTarget && close()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label=${d.title}>
         <h3>${d.title}</h3>
         ${typeof d.body === "function" ? d.body() : d.body}
@@ -1052,7 +1102,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
           : nothing}
         <div class="actions">
           <button class="btn" @click=${close}>${this.t("cancel")}</button>
-          <button class=${d.danger ? "btn primary danger" : "btn primary"} ?autofocus=${!d.typed}
+          <button class=${d.danger ? "btn primary danger" : "btn primary"}
             ?disabled=${!!d.disabled || (d.typed && this._typedValue !== String(d.typed))}
             @click=${() => { close(); d.action(); }}>${d.confirm}</button>
         </div>

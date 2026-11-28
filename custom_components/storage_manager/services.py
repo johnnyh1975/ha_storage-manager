@@ -17,6 +17,7 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.service import async_register_admin_service
 import probatio as vol
 
 from .const import ALL_TIERS, DOMAIN
@@ -94,23 +95,25 @@ def async_setup_services(hass: HomeAssistant) -> None:
             purge_now=call.data["purge_now"],
         )
 
-    hass.services.async_register(
+    # every action deletes or rewrites data: administrators only
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_CLEANUP,
         _cleanup,
         schema=CLEANUP_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
-    hass.services.async_register(
-        DOMAIN, SERVICE_ANALYZE, _analyze, supports_response=SupportsResponse.OPTIONAL
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_ANALYZE, _analyze, supports_response=SupportsResponse.OPTIONAL
     )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_RETENTION, _set_retention, schema=RETENTION_SCHEMA
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_SET_RETENTION, _set_retention, schema=RETENTION_SCHEMA
     )
 
     async def _run_nightly(call: ServiceCall) -> ServiceResponse:
         return await _coordinator(hass).async_nightly("action")
 
-    hass.services.async_register(
-        DOMAIN, SERVICE_RUN_NIGHTLY, _run_nightly, supports_response=SupportsResponse.OPTIONAL
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_RUN_NIGHTLY, _run_nightly, supports_response=SupportsResponse.OPTIONAL
     )

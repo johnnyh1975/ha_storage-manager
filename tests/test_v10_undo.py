@@ -387,6 +387,7 @@ async def test_fallback_to_full_backup(hass: HomeAssistant) -> None:
     assert result["backup"] == backup
 
     # no space: blocked when the full backup is not possible either
+    await coordinator.async_run_analysis()  # the mocked purge left the rows
     with (
         patch("custom_components.storage_manager.coordinator.UNDO_SPACE_MARGIN", 1 << 60),
         patch.object(
@@ -407,6 +408,7 @@ async def test_fallback_to_full_backup(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
+    await coordinator.async_run_analysis()
     with (
         patch.object(undo, "export", side_effect=RuntimeError("boom")),
         patch.object(database, "async_purge_entities", AsyncMock(return_value=0)) as purge,
@@ -429,8 +431,9 @@ async def test_targeted_backup_off_and_unsupported(hass: HomeAssistant) -> None:
     assert coordinator._undo_planned(["orphans", "events"])
     assert not coordinator._undo_planned(["orphans", "purge"])
     assert not coordinator._undo_planned([])
+    # only orphaned statistics, even when other ids are passed in
     spec = await coordinator._undo_spec(["statistics"], None, ["demo:x"], None)
-    assert spec.statistics == ["demo:x"]
+    assert spec.statistics == []
     assert await coordinator._async_protect(undo.Spec(), 0, False, {}) is None
 
 

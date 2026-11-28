@@ -142,6 +142,12 @@ async def _apply(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     )
 
 
+async def _apply_preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_apply_preview(
+        retention=msg.get("retention") or {}, excluded=msg.get("excluded") or {}
+    )
+
+
 async def _analyze(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     try:
         result = await c.async_run_analysis(force_sizes=msg.get("force_sizes", False))
@@ -332,6 +338,15 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("skip_backup", default=False): bool,
         },
         _apply,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/apply_preview",
+            vol.Optional("retention"): {ENTITY_ID: vol.In(ALL_TIERS)},
+            vol.Optional("excluded"): {ENTITY_ID: bool},
+        },
+        _apply_preview,
     )
     _register(
         hass,

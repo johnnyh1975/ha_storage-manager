@@ -1234,8 +1234,7 @@ export const DatabaseSection = (Base) =>
       const body = d.loading
         ? html`<div class="center"><span class="spinner"></span></div>`
         : this._detailBody(d, row);
-      return html`<div class="scrim sheet-scrim" @click=${(e) => e.target === e.currentTarget && close()}
-        @keydown=${(e) => e.key === "Escape" && close()}>
+      return html`<div class="scrim sheet-scrim" @click=${(e) => e.target === e.currentTarget && close()}>
         <aside class="sheet" role="dialog" aria-modal="true" aria-label=${row?.name || d.entity_id}>
           <div class="sheet-head">
             <div>

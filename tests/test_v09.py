@@ -213,6 +213,8 @@ async def _dead_setup(hass: HomeAssistant):
         "statistics": {ids["old"]: {"source": "recorder", "est_bytes": 700}},
     }
     usage = {ids["used"]: EntityUsage(automations=["automation.x"])}
+    # placeholders count only some time after the start
+    coordinator._setup_at = now - 2 * 3600
     return coordinator, ids, values, usage
 
 
@@ -309,6 +311,18 @@ async def test_dead_entities(hass: HomeAssistant, hass_ws_client) -> None:
 
     with pytest.raises(HomeAssistantError):
         await coordinator.async_disable_dead([])
+
+
+async def test_gone_waits_after_start(hass: HomeAssistant) -> None:
+    """Right after a start a placeholder may still be discovered again."""
+    coordinator, ids, values, usage = await _dead_setup(hass)
+    coordinator._setup_at = time.time()
+    with (
+        patch.object(database, "async_last_values", AsyncMock(return_value=values)),
+        patch.object(coordinator, "async_usage", AsyncMock(return_value=usage)),
+    ):
+        dead = await coordinator.async_dead_entities()
+    assert ids["gone"] not in {i["entity_id"] for i in dead["items"]}
 
 
 async def test_dead_without_database(hass: HomeAssistant) -> None:

@@ -436,6 +436,7 @@ export const styles = css`
   svg.treemap .tm:hover rect { opacity: 0.85; }
   svg.treemap .tm-label { font-size: 12px; font-weight: 600; fill: #fff; pointer-events: none; }
   svg.treemap .tm-sub { font-size: 11px; fill: #fff; opacity: 0.9; pointer-events: none; }
+  ul.changes { max-height: 220px; overflow: auto; margin: 4px 0 8px; padding-left: 18px; font-size: 14px; }
   .segmented {
     display: inline-flex;
     border: 1px solid var(--divider-color);

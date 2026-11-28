@@ -158,12 +158,20 @@ async def test_statistics_by_age(hass: HomeAssistant, hass_ws_client) -> None:
             coordinator.store.data.history[-1]["details"]["deleted"]["statistics_age"]["rows"] == 4
         )
 
-        # undo brings the old rows back; the nightly run deletes them again
-        await coordinator.async_undo(result["undo"]["id"])
+        # undo brings the old rows back and the nightly run leaves them alone
+        # until the limit is applied again with a preview
+        preview = await coordinator.async_undo_preview(result["undo"]["id"])
+        assert preview["statistics_limits"] is True
+        restored = await coordinator.async_undo(result["undo"]["id"])
+        assert restored["statistics_limits"] is True
         await async_wait_recording_done(hass)
         assert await _rows(hass, "demo:other") == 4
-        assert await coordinator.async_run_statistics_age() == 4
+        assert coordinator.statistics_retention()["active"] is False
+        assert await coordinator.async_run_statistics_age() == 0
+        assert await _rows(hass, "demo:other") == 4
+        await coordinator.async_clean(["statistics_age"])
         assert await _rows(hass, "demo:other") == 1
+        assert coordinator.statistics_retention()["active"] is True
         assert await coordinator.async_run_statistics_age() == 0
 
         # a damaged database stops the nightly run

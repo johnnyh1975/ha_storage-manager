@@ -341,6 +341,9 @@ async def async_run(
     integrity = await async_integrity(hass, path, store)
     if integrity["result"] == RESULT_CORRUPT:
         raise SafetyError("corrupt", "; ".join(integrity.get("details") or []))
+    if integrity["result"] == RESULT_ERROR:
+        # the file could not be checked (locked, unreadable): no deletion on a guess
+        raise SafetyError("integrity_error", "; ".join(integrity.get("details") or []))
     steps.append({"step": "integrity", **integrity})
 
     backup_info: dict[str, Any] | None = None

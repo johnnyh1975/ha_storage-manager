@@ -914,8 +914,16 @@ EVENT_DELETE_CHUNK = 20000
 PROTECTED_EVENT_TYPES = frozenset({"state_changed"})
 
 
-def delete_events_chunk(session: Session, event_types: list[str], limit: int) -> int:
-    """Delete up to ``limit`` events of the given types, then loose event data."""
+def delete_events_chunk(
+    session: Session, event_types: list[str], limit: int, purged_data: set[int] | None = None
+) -> int:
+    """Delete up to ``limit`` events of the given types and the event data only they used.
+
+    Only the data rows of the deleted events are checked, so a chunk stays
+    small on a large table. Deleted data ids go to ``purged_data``: the
+    recorder keeps them in a cache and must forget them, or the next event
+    with the same data points at a row that is gone.
+    """
     type_ids = [
         int(row[0])
         for row in session.execute(
@@ -927,15 +935,14 @@ def delete_events_chunk(session: Session, event_types: list[str], limit: int) ->
     ]
     if not type_ids:
         return 0
-    ids = [
-        int(row[0])
-        for row in session.execute(
-            text("SELECT event_id FROM events WHERE event_type_id IN :types LIMIT :n").bindparams(
-                bindparam("types", expanding=True)
-            ),
-            {"types": type_ids, "n": limit},
-        )
-    ]
+    rows = session.execute(
+        text(
+            "SELECT event_id, data_id FROM events WHERE event_type_id IN :types LIMIT :n"
+        ).bindparams(bindparam("types", expanding=True)),
+        {"types": type_ids, "n": limit},
+    ).all()
+    ids = [int(event_id) for event_id, _ in rows]
+    data_ids = sorted({int(data_id) for _, data_id in rows if data_id is not None})
     if ids:
         session.execute(
             text("DELETE FROM events WHERE event_id IN :ids").bindparams(
@@ -943,16 +950,18 @@ def delete_events_chunk(session: Session, event_types: list[str], limit: int) ->
             ),
             {"ids": ids},
         )
-    loose = [
-        int(row[0])
-        for row in session.execute(
-            text(
-                "SELECT d.data_id FROM event_data d WHERE NOT EXISTS "
-                "(SELECT 1 FROM events e WHERE e.data_id = d.data_id) LIMIT :n"
-            ),
-            {"n": limit},
-        )
-    ]
+    loose: list[int] = []
+    if data_ids:
+        used = {
+            int(row[0])
+            for row in session.execute(
+                text("SELECT DISTINCT data_id FROM events WHERE data_id IN :ids").bindparams(
+                    bindparam("ids", expanding=True)
+                ),
+                {"ids": data_ids},
+            )
+        }
+        loose = [d for d in data_ids if d not in used]
     if loose:
         session.execute(
             text("DELETE FROM event_data WHERE data_id IN :ids").bindparams(
@@ -960,7 +969,21 @@ def delete_events_chunk(session: Session, event_types: list[str], limit: int) ->
             ),
             {"ids": loose},
         )
+        if purged_data is not None:
+            purged_data.update(loose)
     return len(ids) + len(loose)
+
+
+def evict_event_data(instance: Any, data_ids: set[int]) -> None:
+    """Make the recorder forget deleted event data (recorder thread)."""
+    manager = getattr(instance, "event_data_manager", None)
+    if manager is None or not data_ids:
+        return
+    try:
+        manager.evict_purged(data_ids)
+    except Exception:  # noqa: BLE001 - an older recorder: drop the whole cache
+        _LOGGER.debug("evict_purged failed, resetting the event data cache", exc_info=True)
+        manager.reset()
 
 
 async def async_delete_events(
@@ -982,8 +1005,10 @@ async def async_delete_events(
         counted: list[int] = []
 
         def job(instance: Any, out: list[int] = counted) -> None:
+            purged: set[int] = set()
             with session_scope(session=instance.get_session()) as session:
-                out.append(delete_events_chunk(session, types, chunk))
+                out.append(delete_events_chunk(session, types, chunk, purged))
+            evict_event_data(instance, purged)
 
         if not await repack.async_run_on_recorder(hass, job):  # pragma: no cover
             raise HomeAssistantError("Recorder tasks are not available")

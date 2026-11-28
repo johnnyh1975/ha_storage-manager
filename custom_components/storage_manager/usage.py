@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
@@ -382,8 +383,26 @@ async def _energy_entities(hass: HomeAssistant) -> set[str]:
     return found
 
 
+class EnergyUnknownError(HomeAssistantError):
+    """The energy preferences exist but could not be read."""
+
+
 async def async_energy_statistics(hass: HomeAssistant) -> set[str]:
-    """Statistic ids the energy dashboard reads (configured ones and its cost sensors)."""
+    """Statistic ids the energy dashboard reads (configured ones and its cost sensors).
+
+    Raises EnergyUnknownError when the energy integration is loaded but its
+    preferences cannot be read: deleting by age must not guess then, or the
+    energy statistics would fall under the limit for all others.
+    """
+    if "energy" in hass.config.components:
+        try:
+            from homeassistant.components.energy.data import (  # noqa: PLC0415
+                async_get_manager,
+            )
+
+            await async_get_manager(hass)
+        except Exception as err:
+            raise EnergyUnknownError(f"Energy preferences not readable: {err}") from err
     return await _energy_entities(hass)
 
 

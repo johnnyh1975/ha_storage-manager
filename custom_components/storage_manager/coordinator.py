@@ -105,6 +105,9 @@ DB_DELETE_TARGETS = (
     "purge",
 )
 DEAD_DAYS = 7  # unavailable for this long without a real value counts as dead
+# integrations that discover their entities (MQTT, Zigbee) may need a while
+# after a start before every entity is back: placeholders count only after this
+GONE_GRACE = 3600
 UNDO_SPACE_MARGIN = 64 * 1024 * 1024
 # purge_entities is queued: keep some rows more in the undo file than it deletes
 UNDO_CUTOFF_MARGIN = 3600
@@ -191,6 +194,14 @@ def _changes_database(entry: dict[str, Any]) -> bool:
     )
 
 
+def _chosen(given: list[str] | None, valid: list[str]) -> list[str]:
+    """The given ids that are valid, or all valid ones when none are given."""
+    if not given:
+        return list(valid)
+    allowed = set(valid)
+    return [i for i in given if i in allowed]
+
+
 def _used_flag(entity_usage: usage_mod.EntityUsage | None) -> str | None:
     """yes / dynamic / no for the usage facet (None: not known)."""
     if entity_usage is None:
@@ -235,6 +246,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, store: ManagerStore) -> None:
         """Initialize."""
         self.options = {**DEFAULT_OPTIONS, **entry.options}
+        self._setup_at = time.time()
         super().__init__(
             hass,
             _LOGGER,
@@ -662,6 +674,10 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = self.store.data
         retention = retention or {}
         excluded = excluded or {}
+        # what the entities had before: undo puts it back, or the next
+        # retention run deletes the restored rows again
+        previous_tiers = {e: data.retention.get(e, TIER_DEFAULT) for e in retention}
+        previous_excluded = {e: e in data.excluded for e in excluded}
         for entity_id, tier in retention.items():
             if tier not in ALL_TIERS:
                 raise HomeAssistantError(f"Unknown tier {tier}")
@@ -750,6 +766,19 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     details["backup"] = result["backup"]["name"]
                 if result.get("undo"):
                     details["undo"] = result["undo"]
+                    purged = {e for ids in by_tier.values() for e in ids}
+                    details["revert"] = {
+                        "retention": {
+                            e: [previous_tiers[e], retention[e]]
+                            for e in retention
+                            if e in purged and previous_tiers[e] != retention[e]
+                        },
+                        "excluded": {
+                            e: [previous_excluded[e], flag]
+                            for e, flag in excluded.items()
+                            if e in purged and previous_excluded[e] != flag
+                        },
+                    }
                 self.store.log("purge_entities", estimate, details)
             if any(by_tier.values()):
                 self._schedule_reanalysis()
@@ -766,6 +795,32 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.invalidate("files")
         await self.async_refresh()
         return result
+
+    async def async_apply_preview(
+        self, *, retention: dict[str, str], excluded: dict[str, bool]
+    ) -> dict[str, Any]:
+        """What applying a draft deletes right away, and the safety chain before it."""
+        by_tier: dict[int, list[str]] = {}
+        for entity_id, tier in retention.items():
+            if tier not in ALL_TIERS:
+                raise HomeAssistantError(f"Unknown tier {tier}")
+            if tier in RETENTION_TIERS:
+                by_tier.setdefault(RETENTION_TIERS[tier], []).append(entity_id)
+        newly = [e for e, flag in excluded.items() if flag and e not in self.store.data.excluded]
+        if newly:
+            by_tier.setdefault(0, []).extend(newly)
+        estimate = self._estimate_purge(by_tier)
+        entities = sorted({e for ids in by_tier.values() for e in ids})
+        planned = undo.AVAILABLE and bool(self.options[CONF_TARGETED_BACKUP])
+        return {
+            "entities": len(entities),
+            "bytes": estimate,
+            "safety": (
+                await self.async_safety_plan(delete_bytes=estimate, undo=planned)
+                if entities
+                else None
+            ),
+        }
 
     def _schedule_reanalysis(self) -> None:
         """Measure the effect once the queued purges are done."""
@@ -1010,6 +1065,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if config_entry is None or config_entry.state is not ConfigEntryState.LOADED:
                         continue
             gone = bool(state.attributes.get("restored"))
+            if gone and now - self._setup_at < GONE_GRACE:
+                continue
             candidates[entity_id] = {
                 "entity_id": entity_id,
                 "name": state.name or entity_id,
@@ -1429,12 +1486,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         spec = undo.Spec()
         statistics: set[str] = set()
         if "orphans" in db_targets:
-            ids = self.orphans()["entities"]
-            if entity_ids and "dead" not in db_targets:
-                ids = entity_ids
+            ids = _chosen(
+                entity_ids if "dead" not in db_targets else None, self.orphans()["entities"]
+            )
             spec.states.update(dict.fromkeys(ids))
         if "statistics" in db_targets:
-            statistics.update(statistic_ids or self.orphans()["statistics"])
+            statistics.update(_chosen(statistic_ids, self.orphans()["statistics"]))
         if "unused_statistics" in db_targets:
             statistics.update(
                 i["statistic_id"] for i in await self._unused_selection(statistic_ids)
@@ -1473,9 +1530,20 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.exception("Targeted backup failed, using the full backup")
         if self.options[CONF_BACKUP_BEFORE_DELETE] and not skip_backup:
             self._set_busy("safety_backup")
-            backup = await safety.async_recent_backup(
-                self.hass
-            ) or await safety.async_create_backup(self.hass)
+            backup = await safety.async_recent_backup(self.hass)
+            if backup is None:
+                # the safety chain checked the space without a backup: check
+                # again before the fallback fills the disk
+                size, _ = await safety.async_backup_size(
+                    self.hass, int(self.data["database"]["size"] or 0)
+                )
+                need = safety.space_needed(
+                    live_bytes=self._live_bytes(), delete_bytes=delete_bytes, backup_bytes=size
+                )
+                free = int(self.data["disk"]["free"])
+                if free < need:
+                    raise safety.SafetyError("no_space", str(need))
+                backup = await safety.async_create_backup(self.hass)
             safety_result["backup"] = backup
         return None
 
@@ -1537,6 +1605,22 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             e for e in deleted.get("statistics_off") or [] if e in self.store.data.stats_off
         ]
         info["undone"] = ((entry or {}).get("details") or {}).get("undone")
+        revert = ((entry or {}).get("details") or {}).get("revert") or {}
+        data = self.store.data
+        # only settings nobody changed since: a later choice of the user stays
+        info["retention"] = {
+            e: old
+            for e, (old, new) in (revert.get("retention") or {}).items()
+            if data.retention.get(e, TIER_DEFAULT) == new
+        }
+        info["include"] = [
+            e
+            for e, (old, new) in (revert.get("excluded") or {}).items()
+            if (e in data.excluded) == bool(new)
+        ]
+        info["statistics_limits"] = bool(
+            "statistics_age" in deleted and data.stats_limits_applied is not None
+        )
         info["need"] = info["bytes"] * 10 + UNDO_SPACE_MARGIN
         info["free"] = int(self.data["disk"]["free"])
         return info
@@ -1570,6 +1654,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_enable_dead(preview["enable"])
         if preview["statistics_on"]:
             await self.async_statistics_on(preview["statistics_on"])
+        if preview["retention"] or preview["include"]:
+            await self._async_revert_settings(preview["retention"], preview["include"])
+        if preview["statistics_limits"]:
+            # the limits stay set but wait for the next confirmed run again
+            self.store.data.stats_limits_applied = None
+            self.store.schedule_save()
         entry = self._undo_entry(undo_id)
         if entry is not None and not entry["details"].get("undone"):
             entry["details"]["undone"] = dt_util.utcnow().isoformat()
@@ -1580,7 +1670,27 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._schedule_reanalysis()
         self.invalidate("breakdown")
         await self.async_refresh()
-        return {**result, "enabled": preview["enable"], "statistics_on": preview["statistics_on"]}
+        return {
+            **result,
+            "enabled": preview["enable"],
+            "statistics_on": preview["statistics_on"],
+            "retention": preview["retention"],
+            "include": preview["include"],
+            "statistics_limits": preview["statistics_limits"],
+        }
+
+    async def _async_revert_settings(self, retention: dict[str, str], include: list[str]) -> None:
+        """Put retention tiers and recorder exclusions back as they were."""
+        data = self.store.data
+        for entity_id, tier in retention.items():
+            if tier == TIER_DEFAULT:
+                data.retention.pop(entity_id, None)
+            else:
+                data.retention[entity_id] = tier
+        data.excluded = sorted(set(data.excluded) - set(include))
+        self.store.schedule_save()
+        await self._async_sync_package()
+        self._usage_at = 0.0
 
     # ------------------------------------------------------------------
     # orphans
@@ -2330,7 +2440,12 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "items": orphans["entities"],
             }
         if "statistics" in targets:
-            preview["statistics"] = {"bytes": 0, "items": self.orphans()["statistics"]}
+            known = (self.store.data.analysis or {}).get("statistics") or {}
+            ids = self.orphans()["statistics"]
+            preview["statistics"] = {
+                "bytes": sum(int((known.get(i) or {}).get("est_bytes") or 0) for i in ids),
+                "items": ids,
+            }
         if "purge" in targets:
             obsolete = (self.store.data.analysis or {}).get("obsolete") or {}
             preview["purge"] = {
@@ -2672,10 +2787,20 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         if "backups" in targets:
             self._set_busy("backups")
-            plan = self.backup_plan()
-            freed, errs = await backup_mod.async_apply_rotation(self.hass, plan)
-            results["backups"] = freed
-            errors += errs
+            # a fresh list: a copy elsewhere may have gone since the last poll
+            fresh = await backup_mod.async_list(self.hass)
+            if fresh is not None and fresh["agent_errors"]:
+                # a location did not answer: whether a copy is there is unknown
+                errors.append(
+                    "backup rotation skipped, not every backup location answered: "
+                    + ", ".join(fresh["agent_errors"])
+                )
+                results["backups"] = 0
+            else:
+                plan = self.backup_plan(fresh) if fresh is not None else []
+                freed, errs = await backup_mod.async_apply_rotation(self.hass, plan)
+                results["backups"] = freed
+                errors += errs
             self.invalidate("backups", "breakdown")
         if "files" in targets:
             self._set_busy("files")
@@ -2719,22 +2844,24 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "orphans" in db_targets:
             self._set_busy("orphans")
             orphans = self.orphans()
-            ids = orphans["entities"]
-            if entity_ids and "dead" not in db_targets:
-                ids = entity_ids
+            # only real orphans, even when ids are passed in
+            ids = _chosen(entity_ids if "dead" not in db_targets else None, orphans["entities"])
             await database.async_purge_entities(self.hass, ids, 0)
             results["orphans"] = orphans["entity_bytes"] if not entity_ids else 0
             deleted["entities"] = ids[:LOG_IDS_MAX]
             self._drop_from_analysis(ids)
         if "statistics" in db_targets:
             self._set_busy("statistics")
-            ids = statistic_ids or self.orphans()["statistics"]
+            ids = _chosen(statistic_ids, self.orphans()["statistics"])
             await database.async_clear_statistics(self.hass, ids)
-            results["statistics"] = 0
-            deleted["statistics"] = ids[:LOG_IDS_MAX]
             analysis = self.store.data.analysis or {}
+            known = analysis.get("statistics") or {}
+            results["statistics"] = sum(
+                int((known.get(i) or {}).get("est_bytes") or 0) for i in ids
+            )
+            deleted["statistics"] = ids[:LOG_IDS_MAX]
             for sid in ids:
-                (analysis.get("statistics") or {}).pop(sid, None)
+                known.pop(sid, None)
         if "purge" in db_targets:
             self._set_busy("purge")
             obsolete = (self.store.data.analysis or {}).get("obsolete") or {}

@@ -13,6 +13,7 @@ from typing import Any
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import StorageConfigEntry
@@ -68,5 +69,10 @@ class StorageButton(StorageEntity, ButtonEntity):
         self.entity_description = description
 
     async def async_press(self) -> None:
-        """Run the action."""
+        """Run the action (only for administrators and automations)."""
+        user_id = self._context.user_id if self._context else None
+        if user_id is not None:
+            user = await self.hass.auth.async_get_user(user_id)
+            if user is None or not user.is_admin:
+                raise Unauthorized(context=self._context)
         await self.entity_description.press_fn(self.coordinator)
