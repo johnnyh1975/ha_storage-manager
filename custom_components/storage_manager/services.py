@@ -21,7 +21,8 @@ from homeassistant.helpers.service import async_register_admin_service
 import probatio as vol
 
 from .const import ALL_TIERS, DOMAIN
-from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
+from .coordinator import StorageCoordinator
+from .targets import ALL_CLEAN_TARGETS
 
 ENSURE_LIST = vol.EnsureList() if hasattr(vol, "EnsureList") else cv.ensure_list
 
@@ -63,7 +64,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = _coordinator(hass)
         targets: list[str] = call.data.get("targets") or coordinator.safe_targets()
         if call.data["dry_run"]:
-            return {"dry_run": True, **(await coordinator.async_preview(targets))}
+            preview = await coordinator.async_preview(targets)
+            # the action selects when it runs: a plan id would be of no use here
+            preview.pop("plan_id", None)
+            return {"dry_run": True, **preview}
         result: dict[str, Any] = await coordinator.async_clean(targets)
         return {"dry_run": False, **result}
 

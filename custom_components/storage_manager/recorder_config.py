@@ -29,7 +29,6 @@ PACKAGES_RE = re.compile(
     r"^\s*packages\s*:\s*!(include_dir_named|include_dir_merge_named)\s+['\"]?([^'\"\s#]+)",
     re.MULTILINE,
 )
-HOMEASSISTANT_RE = re.compile(r"^homeassistant\s*:", re.MULTILINE)
 HEADER = (
     "# Managed by Storage Manager - do not edit, changes are overwritten.\n"
     "# Recorder exclusions and settings chosen in the Storage Manager panel.\n"

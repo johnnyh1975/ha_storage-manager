@@ -6,11 +6,12 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, Final
 
 DOMAIN: Final = "storage_manager"
 NAME: Final = "Storage Manager"
-VERSION: Final = "1.2.1"
+VERSION: Final = "1.3.0"
 
 STORAGE_KEY: Final = f"{DOMAIN}.data"
 STORAGE_VERSION: Final = 1
@@ -51,15 +52,26 @@ DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_NIGHTLY_RUN: True,
 }
 
+
 # Retention tiers. Value = keep_days passed to recorder.purge_entities.
 # "drop" keeps nothing and runs hourly; numeric tiers run daily.
-TIER_DROP: Final = "drop"
-TIER_DEFAULT: Final = "default"
+class Tier(StrEnum):
+    """Retention tiers. Values are what actions, the panel and the store use."""
+
+    DEFAULT = "default"
+    WEEK = "7"
+    THREE_DAYS = "3"
+    DAY = "1"
+    DROP = "drop"
+
+
+TIER_DROP: Final = Tier.DROP
+TIER_DEFAULT: Final = Tier.DEFAULT
 RETENTION_TIERS: Final[dict[str, int]] = {
-    TIER_DROP: 0,
-    "1": 1,
-    "3": 3,
-    "7": 7,
+    Tier.DROP: 0,
+    Tier.DAY: 1,
+    Tier.THREE_DAYS: 3,
+    Tier.WEEK: 7,
 }
 ALL_TIERS: Final = (TIER_DEFAULT, *RETENTION_TIERS)
 

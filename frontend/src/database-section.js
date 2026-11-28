@@ -4,46 +4,9 @@
 import { html, nothing, svg } from "lit";
 import { live } from "lit/directives/live.js";
 import { bytes, number, percent, relativeTime, dateTime } from "./format.js";
+import { TM_COLORS, rate, squarify } from "./util.js";
 
-const TM_COLORS = ["#4f9bd9", "#f0a04b", "#5db36b", "#d9667a", "#9a7bd1", "#3fb7b0", "#c2b74a", "#8d99a6"];
-
-// squarified treemap (Bruls et al.): rows of rectangles with good aspect ratios
-function squarify(items, x, y, w, h) {
-  const total = items.reduce((a, i) => a + i.v, 0);
-  if (!total || !items.length) return [];
-  const scale = (w * h) / total;
-  const nodes = items.map((i) => ({ ...i, a: i.v * scale }));
-  const out = [];
-  let rect = { x, y, w, h };
-  let row = [];
-  const worst = (r, side) => {
-    const s = r.reduce((a, n) => a + n.a, 0);
-    const max = Math.max(...r.map((n) => n.a));
-    const min = Math.min(...r.map((n) => n.a));
-    return Math.max((side * side * max) / (s * s), (s * s) / (side * side * min));
-  };
-  const layout = (r) => {
-    const s = r.reduce((a, n) => a + n.a, 0);
-    if (rect.w >= rect.h) {
-      const cw = s / rect.h;
-      let cy = rect.y;
-      for (const n of r) { const nh = n.a / cw; out.push({ ...n, x: rect.x, y: cy, w: cw, h: nh }); cy += nh; }
-      rect = { x: rect.x + cw, y: rect.y, w: rect.w - cw, h: rect.h };
-    } else {
-      const ch = s / rect.w;
-      let cx = rect.x;
-      for (const n of r) { const nw = n.a / ch; out.push({ ...n, x: cx, y: rect.y, w: nw, h: ch }); cx += nw; }
-      rect = { x: rect.x, y: rect.y + ch, w: rect.w, h: rect.h - ch };
-    }
-  };
-  for (const n of nodes) {
-    const side = Math.min(rect.w, rect.h);
-    if (!row.length || worst([...row, n], side) <= worst(row, side)) row.push(n);
-    else { layout(row); row = [n]; }
-  }
-  if (row.length) layout(row);
-  return out;
-}
+export { rate };
 
 export const TIER_ORDER = ["default", "7", "3", "1", "drop", "excluded"];
 export const TIER_DAYS = { "7": 7, "3": 3, "1": 1, drop: 0, excluded: 0 };
@@ -51,13 +14,6 @@ const ENGINES = { sqlite: "SQLite", mysql: "MariaDB/MySQL", postgresql: "Postgre
 const PAGE = 150;
 
 /** "every 2 s" / "every 5 min" / "12× per day" from rows in the last 24 h. */
-export function rate(rows24h, t, lang) {
-  if (!rows24h) return "–";
-  const interval = 86400 / rows24h;
-  if (interval < 60) return t("rate_seconds", { n: Math.max(1, Math.round(interval)) });
-  if (interval < 3600) return t("rate_minutes", { n: Math.round(interval / 60) });
-  return t("rate_per_day", { n: number(rows24h, lang) });
-}
 
 export const DatabaseSection = (Base) =>
   class extends Base {
@@ -101,7 +57,7 @@ export const DatabaseSection = (Base) =>
     }
 
     _integrationName(key) {
-      const name = this.hass?.localize?.(`component.${key}.title`);
+      const name = this.hass?.localize?.(`component.${key}.title`) || this._entities?.integration_names?.[key];
       return name || key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
     }
 
@@ -415,7 +371,11 @@ export const DatabaseSection = (Base) =>
         ${events.slice(0, 12).map(
           (e) => html`<div class="list-row">
             <div><code>${e.event_type}</code>
-              ${e.excluded ? html` <span class="tag">${t("events_excluded")}</span>` : nothing}
+              ${e.excluded
+                ? html` <span class="tag">${t("events_excluded")}</span>`
+                : e.deletable
+                ? html` <span class="tag warn" title=${t("events_still_recorded_hint")}>${t("events_still_recorded")}</span>`
+                : nothing}
               ${e.logbook ? html` <span class="tag">${t("events_logbook")}</span>` : nothing}</div>
             <div class="num">${number(e.rows, this.lang)}${e.est_bytes ? html`<br /><span class="muted small">${bytes(e.est_bytes, this.lang)}</span>` : nothing}</div>
             <div>${e.deletable
@@ -1082,7 +1042,7 @@ export const DatabaseSection = (Base) =>
         return html`<label class="field">
           <span>${t(`setting_${key}`)}</span>
           <span class="row">
-            <input type="number" min=${min} max=${max} .value=${String(value)} placeholder=${String(eff[key] ?? "")}
+            <input type="number" name=${key} min=${min} max=${max} .value=${String(value)} placeholder=${String(eff[key] ?? "")}
               ?disabled=${isLocked}
               @change=${(e) => {
                 const v = e.target.value === "" ? null : Number(e.target.value);
@@ -1155,7 +1115,7 @@ export const DatabaseSection = (Base) =>
         <div class="row" style="margin-top:16px">
           <span class="spacer"></span>
           <button class="btn" @click=${() => (this._settingsDraft = undefined)}>${t("discard")}</button>
-          <button class="btn primary" ?disabled=${!!this._working} @click=${this._saveSettings}>${t("settings_save")}</button>
+          <button class="btn primary settings-save" ?disabled=${!!this._working} @click=${() => this._saveSettings()}>${t("settings_save")}</button>
         </div>`;
     }
 
@@ -1193,11 +1153,36 @@ export const DatabaseSection = (Base) =>
       </div>`;
     }
 
-    async _saveSettings() {
+    async _saveSettings(confirmed = false) {
       const st = this._settingsDraft;
       if (!st) return;
+      const t = this.t;
       const locked = this._overview.data.recorder.locked_settings || {};
       const settings = Object.fromEntries(Object.entries(st.settings).filter(([k, v]) => !(k in locked) && v !== "" && v !== undefined));
+      const current = Number((this._overview.data.recorder.effective_settings || {}).purge_keep_days);
+      const chosen = Number(settings.purge_keep_days);
+      if (confirmed !== true && chosen && current && chosen < current) {
+        // a shorter global retention is deleted by the next nightly purge,
+        // without Storage Manager's backup or undo
+        let freed = this._whatif?.[chosen];
+        if (!freed) {
+          try {
+            freed = (await this._ws("retention_whatif", { days: [chosen] })).results.find((r) => r.days === chosen);
+          } catch (err) {
+            freed = undefined;
+          }
+        }
+        this._dialog = {
+          title: t("confirm_title"),
+          body: html`<p>${t("keep_shorter", { from: current, to: chosen })}</p>
+            ${freed && freed.bytes < 0 ? html`<p><b>${t("keep_shorter_bytes", { bytes: bytes(-freed.bytes, this.lang) })}</b></p>` : nothing}
+            <p>${t("keep_shorter_no_undo")}</p>`,
+          confirm: t("settings_save"),
+          danger: true,
+          action: () => this._saveSettings(true),
+        };
+        return;
+      }
       this._working = "settings";
       try {
         const res = await this._ws("settings", { filters: st.filters, settings });

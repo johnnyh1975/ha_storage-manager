@@ -127,6 +127,10 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     window.addEventListener("hashchange", this._hashListener);
     // Escape closes the open dialog, then the detail sheet, wherever the focus is
     this._keyListener = (e) => {
+      if (e.key === "Tab") {
+        this._trapFocus(e);
+        return;
+      }
       if (e.key !== "Escape") return;
       if (this._dialog) this._dialog = undefined;
       else if (this._detail) this._detail = undefined;
@@ -166,14 +170,36 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     }
   }
 
+  _trapFocus(e) {
+    // Tab stays inside an open dialog (or the detail sheet): it is modal
+    const box = this.renderRoot.querySelector(this._dialog ? ".dialog" : this._detail ? ".sheet" : ".none");
+    if (!box) return;
+    const items = [...box.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, a[href], [tabindex]:not([tabindex="-1"])'
+    )];
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = this.renderRoot.activeElement;
+    if (e.shiftKey && (active === first || !box.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !box.contains(active))) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   _manageFocus(changed, key, selector) {
     // move the focus into a dialog when it opens and back to where it came from
     if (!changed.has(key)) return;
     const was = changed.get(key);
     const now = this[key];
-    if (now && !was) {
+    // a dialog that replaces another one takes the focus too (the sheet only on opening)
+    if (now && (!was || (key === "_dialog" && now !== was))) {
       if (key === "_dialog") this._typedValue = "";
-      this._returnFocus = this._returnFocus || this.renderRoot.activeElement;
+      // one dialog replacing another keeps the original place to return to
+      if (!was) this._returnFocus = this._returnFocus || this.renderRoot.activeElement;
       this.renderRoot.querySelector(selector)?.focus();
     } else if (!now && was) {
       const back = this._returnFocus;
@@ -424,8 +450,16 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (!p) continue;
       if (target === "backups") p.items.forEach((b) => items.push(`${b.name} · ${bytes(b.bytes, this.lang)}`));
       else if (target === "files") p.items.forEach((f) => items.push(`${this.t(`hog_${f.name}`)} · ${bytes(f.bytes, this.lang)}`));
-      else if (target === "orphans") items.push(`${this.t("rec_orphans")}: ${p.items.length} · ${bytes(p.bytes, this.lang)}`);
-      else if (target === "statistics") items.push(`${this.t("rec_statistics")}: ${p.items.length}`);
+      else if (target === "orphans") {
+        items.push(`${this.t("rec_orphans")}: ${p.items.length} · ${bytes(p.bytes, this.lang)}`);
+        // name them: exactly these go, not what counts as an orphan a minute later
+        p.items.slice(0, 10).forEach((id) => items.push(id));
+        if (p.items.length > 10) items.push(this.t("apply_more", { n: p.items.length - 10 }));
+      } else if (target === "statistics") {
+        items.push(`${this.t("rec_statistics")}: ${p.items.length}${p.bytes ? ` · ${bytes(p.bytes, this.lang)}` : ""}`);
+        p.items.slice(0, 10).forEach((id) => items.push(id));
+        if (p.items.length > 10) items.push(this.t("apply_more", { n: p.items.length - 10 }));
+      }
       else if (target === "purge") items.push(`${this.t("obsolete_purge")}: ${number(p.rows, this.lang)} · ${bytes(p.bytes, this.lang)}`);
       else if (target === "repack") items.push(`${this.t("rec_repack")} · ${bytes(p.bytes, this.lang)} – ${this._repackPlanText(p.plan)}`);
       else if (target === "docker") items.push(this.t("docker_title"));
@@ -468,7 +502,12 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       confirm: this.t("free_now"),
       danger: true,
       disabled: blockedSpace,
-      action: () => this._clean(targets, canConvert ? { ...extra, convert: this._repackConvert } : extra),
+      action: () =>
+        this._clean(targets, {
+          ...extra,
+          plan_id: preview.plan_id,
+          ...(canConvert ? { convert: this._repackConvert } : {}),
+        }),
     };
   }
 
@@ -491,7 +530,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (this._dead) await this._loadDead();
       if (this._tab === "backups") await this._loadBackups();
     } catch (err) {
-      this._showToast(this.t("error", { msg: err.message }));
+      this._showToast(err.message === "plan_expired" ? this.t("plan_expired") : this.t("error", { msg: err.message }));
     } finally {
       this._working = null;
     }
@@ -656,7 +695,8 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
           ? html`<div class="center"><span class="spinner"></span><p class="muted">${t("loading")}</p></div>`
           : this._renderTab()}
       </main>
-      ${this._renderDraftBar()} ${this._toast ? html`<div class="toast" role="status">${this._toast}</div>` : nothing}
+      ${this._renderDraftBar()}
+      <div class="live" role="status" aria-live="polite">${this._toast ? html`<div class="toast">${this._toast}</div>` : nothing}</div>
       ${this._renderDialog()}
     `;
   }
@@ -769,7 +809,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
                     ? ` · ${t(`action_${h.details.interrupted_action}`)}`
                     : ""}${(h.details?.targets || []).length
                     ? ` · ${h.details.targets.map((x) => t(`target_${x}`)).join(", ")}`
-                    : ""}${h.details?.blocked ? ` · ${t("history_blocked")}` : ""}</div></div>
+                    : ""}${h.details?.blocked ? ` · ${t("history_blocked")}` : ""}${h.details?.failed ? ` · ${t("history_failed")}` : ""}</div></div>
                   <div>${this._undoCell(h)}</div>
                   <div class="num"><b>${bytes(h.freed_bytes, this.lang)}</b></div>
                 </div>`
@@ -1092,8 +1132,8 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     if (!d) return nothing;
     const close = () => (this._dialog = undefined);
     return html`<div class="scrim" @click=${(e) => e.target === e.currentTarget && close()}>
-      <div class="dialog" role="dialog" aria-modal="true" aria-label=${d.title}>
-        <h3>${d.title}</h3>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <h3 id="dialog-title">${d.title}</h3>
         ${typeof d.body === "function" ? d.body() : d.body}
         ${d.typed
           ? html`<label class="typed">${this.t("typed_confirm", { n: d.typed })}

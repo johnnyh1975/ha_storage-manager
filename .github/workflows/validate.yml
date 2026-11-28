@@ -146,3 +146,27 @@ jobs:
           npm run build
       - name: Built bundle matches the sources
         run: git diff --exit-code -- custom_components/storage_manager/frontend/
+
+  panel-tests:
+    name: Panel Tests (unit and smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install and build
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - name: Install Chromium for the smoke test
+        run: cd frontend && npx playwright install --with-deps chromium
+      - name: Unit tests of the panel helpers
+        run: cd frontend && npm run test:unit
+      - name: Smoke test of every tab and view (en/de, desktop/phone)
+        run: cd frontend && npm run test:smoke

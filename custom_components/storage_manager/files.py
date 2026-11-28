@@ -9,6 +9,7 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 import os
@@ -38,6 +39,22 @@ class HogDefinition:
     remove_dir: bool = False
     # use a Home Assistant action instead of deleting files
     via_action: tuple[str, str] | None = None
+    # every match must pass this check (a name alone can be someone's own file)
+    accept: Callable[[Path], bool] | None = None
+
+
+ELF_MAGIC = b"\x7fELF"
+
+
+def is_core_dump(path: Path) -> bool:
+    """A real crash dump: a regular file that starts like an ELF core file."""
+    try:
+        if not path.is_file():
+            return False
+        with path.open("rb") as handle:
+            return handle.read(4) == ELF_MAGIC
+    except OSError:
+        return False
 
 
 HOG_DEFINITIONS: tuple[HogDefinition, ...] = (
@@ -83,6 +100,8 @@ HOG_DEFINITIONS: tuple[HogDefinition, ...] = (
         key="core_dumps",
         patterns=("core", "core.[0-9]*"),
         safety="safe",
+        # "core.1.yaml" is a name people use; only real ELF core files count
+        accept=is_core_dump,
     ),
 )
 HOGS_BY_KEY = {h.key: h for h in HOG_DEFINITIONS}
@@ -123,7 +142,7 @@ def _matches(config_dir: Path, hog: HogDefinition) -> list[Path]:
     for pattern in hog.patterns:
         for match in config_dir.glob(pattern):
             if match.exists() and not match.is_symlink() and _inside(config_dir, match):
-                if hog.key == "core_dumps" and not match.is_file():
+                if hog.accept is not None and not hog.accept(match):
                     continue
                 found.append(match)
     return found

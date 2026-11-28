@@ -24,6 +24,7 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
 )
 
 from custom_components.storage_manager import backups as backup_mod
+from custom_components.storage_manager import cleanup as cleanup_mod
 from custom_components.storage_manager import coordinator as coord_mod
 from custom_components.storage_manager.const import PACKAGE_FILE
 
@@ -284,7 +285,7 @@ async def test_preview_and_clean_all_targets(hass: HomeAssistant) -> None:
         patch.object(
             backup_mod, "async_apply_rotation", AsyncMock(return_value=(GB, []))
         ) as rotate,
-        patch.object(coord_mod, "is_hassio", return_value=True),
+        patch.object(cleanup_mod, "is_hassio", return_value=True),
         patch.object(coord_mod.disk, "async_supervisor_repair", AsyncMock()) as repair,
         patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)),
         patch.object(coord_mod.database, "async_clear_statistics", AsyncMock()) as clear,
@@ -329,7 +330,7 @@ async def test_clean_specific_orphans(hass: HomeAssistant) -> None:
     coordinator.store.data.analysis = _analysis({"sensor.gone": _info(5, 500)})
     with patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)):
         result = await coordinator.async_clean(["orphans"], entity_ids=["sensor.gone"])
-    assert result["results"]["orphans"] == 0
+    assert result["results"]["orphans"] == 500  # the size of exactly these entities
     assert "sensor.gone" not in coordinator.store.data.analysis["entities"]
     coordinator.store.data.analysis = None
     coordinator._drop_from_analysis(["x"])

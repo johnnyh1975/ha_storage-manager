@@ -7,6 +7,7 @@ https://github.com/tonylofgren/aurora-smart-home
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -81,6 +82,8 @@ class ManagerData:
     stats_limits_applied: list[int | None] | None = None
     # a database change in progress; still set after a restart = interrupted
     running: dict[str, Any] | None = None
+    # what Undo needs per undo file, kept as long as the file (not the history)
+    undo_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -134,6 +137,11 @@ class ManagerData:
             stats_keep_months=_months(data.get("stats_keep_months")),
             energy_stats_keep_months=_months(data.get("energy_stats_keep_months")),
             running=data.get("running") if isinstance(data.get("running"), dict) else None,
+            undo_meta=(
+                {str(k): v for k, v in data["undo_meta"].items() if isinstance(v, dict)}
+                if isinstance(data.get("undo_meta"), dict)
+                else {}
+            ),
             stats_limits_applied=(
                 [_months(v) for v in data["stats_limits_applied"]]
                 if isinstance(data.get("stats_limits_applied"), list)
@@ -172,6 +180,7 @@ class ManagerData:
             "energy_stats_keep_months": self.energy_stats_keep_months,
             "stats_limits_applied": self.stats_limits_applied,
             "running": self.running,
+            "undo_meta": self.undo_meta,
         }
 
 
@@ -183,26 +192,71 @@ def _months(value: Any) -> int | None:
     return months if months > 0 else None
 
 
+ANALYSIS_KEY = f"{STORAGE_KEY}.analysis"
+# the analysis is a large cache, rebuilt every night: written seldom, in its own file
+ANALYSIS_SAVE_DELAY = 300
+
+
 class ManagerStore:
-    """Wrapper around HA's Store with delayed saving."""
+    """Wrapper around HA's Store with delayed saving.
+
+    Settings, history and undo information are small and saved soon after
+    a change. The database analysis can be megabytes; it lives in its own
+    file and is written at most every few minutes (and when HA stops).
+    """
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize."""
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY, private=True)
+        self._analysis_store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, ANALYSIS_KEY, private=True
+        )
+        self._analysis_due: float | None = None
         self.data = ManagerData()
 
     async def async_load(self) -> ManagerData:
-        """Load from disk."""
+        """Load from disk (an analysis in the main file, from before 1.3, moves on)."""
         self.data = ManagerData.from_dict(await self._store.async_load())
+        stored = await self._analysis_store.async_load()
+        if isinstance(stored, dict) and isinstance(stored.get("analysis"), dict):
+            self.data.analysis = stored["analysis"]
         return self.data
+
+    def _main(self) -> dict[str, Any]:
+        data = self.data.as_dict()
+        data.pop("analysis", None)
+        return data
+
+    def _analysis(self) -> dict[str, Any]:
+        self._analysis_due = None
+        return {"analysis": self.data.analysis}
 
     def schedule_save(self) -> None:
         """Save soon (coalesces bursts of changes)."""
-        self._store.async_delay_save(self.data.as_dict, SAVE_DELAY)
+        self._store.async_delay_save(self._main, SAVE_DELAY)
+        # a new call would push the delayed write back again and again
+        now = time.monotonic()
+        if self._analysis_due is None or now > self._analysis_due:
+            self._analysis_due = now + ANALYSIS_SAVE_DELAY
+            self._analysis_store.async_delay_save(self._analysis, ANALYSIS_SAVE_DELAY)
 
     async def async_save(self) -> None:
-        """Save now."""
-        await self._store.async_save(self.data.as_dict())
+        """Save the small part now."""
+        await self._store.async_save(self._main())
+
+    async def async_flush(self) -> None:
+        """Write both files now (unload, reload): no delayed write stays behind.
+
+        A reload loads the files again; a pending analysis write of the old
+        instance would otherwise come later and overwrite newer data.
+        """
+        await self._store.async_save(self._main())
+        await self._analysis_store.async_save(self._analysis())
+
+    async def async_remove(self) -> None:
+        """Delete both files (the integration is removed)."""
+        await self._store.async_remove()
+        await self._analysis_store.async_remove()
 
     async def async_mark_running(self, action: str, details: dict[str, Any]) -> None:
         """Note a database change before it starts (saved at once)."""
@@ -265,14 +319,17 @@ class ManagerStore:
 
     def log(self, action: str, freed: int, details: dict[str, Any] | None = None) -> None:
         """Record a cleanup action."""
-        self.data.history.append(
-            {
-                "time": dt_util.utcnow().isoformat(),
-                "action": action,
-                "freed_bytes": int(max(freed, 0)),
-                "details": details or {},
-            }
-        )
+        entry: dict[str, Any] = {
+            "time": dt_util.utcnow().isoformat(),
+            "action": action,
+            "freed_bytes": int(max(freed, 0)),
+            "details": details or {},
+        }
+        self.data.history.append(entry)
+        undo_info = entry["details"].get("undo")
+        if isinstance(undo_info, dict) and undo_info.get("id"):
+            # the same entry object: Undo still finds it after the history rolls over
+            self.data.undo_meta[str(undo_info["id"])] = entry
         self.data.history = self.data.history[-HISTORY_MAX:]
         self.data.freed_total += int(max(freed, 0))
         self.schedule_save()

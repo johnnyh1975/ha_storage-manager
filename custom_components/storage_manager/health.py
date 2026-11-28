@@ -380,7 +380,11 @@ def backup_checks(
     else:
         checks.append(_check("encryption", WARNING if unprotected else OK, agents=unprotected))
 
-    checks.append(_check("database_included", OK if info["include_database"] else WARNING))
+    if recurrence == "never":
+        # no automatic backups: the setting says nothing yet
+        checks.append(_check("database_included", INFO, scheduled=False))
+    else:
+        checks.append(_check("database_included", OK if info["include_database"] else WARNING))
 
     last_size = items[0][1]["size"] if items else 0
     need = int(last_size * SPACE_FACTOR)

@@ -140,38 +140,34 @@ def test_human_sizes() -> None:
     assert repairs._human(None) == "0 B"
 
 
-def test_setup_packages_variants(tmp_path: Path) -> None:
-    """Append when safe, refuse when a homeassistant block exists."""
-    cfg = tmp_path / "configuration.yaml"
-    cfg.write_text("default_config:")
-    assert repairs.setup_packages(str(tmp_path)) == "added"
-    assert "packages: !include_dir_named packages" in cfg.read_text()
-    assert (tmp_path / "packages").is_dir()
-    assert (tmp_path / "configuration.yaml.storage_manager.bak").exists()
-    assert repairs.setup_packages(str(tmp_path)) == "exists"
-    cfg.write_text("homeassistant:\n  name: x\n")
-    assert repairs.setup_packages(str(tmp_path)) == "manual"
-
-
-async def test_packages_fix_flow(hass: HomeAssistant) -> None:
-    """The packages flow adds the include and writes pending exclusions."""
+async def test_packages_fix_flow_never_writes_configuration(hass: HomeAssistant) -> None:
+    """The flow shows the lines; configuration.yaml is the user's and stays untouched."""
     config = Path(hass.config.config_dir)
-    (config / "configuration.yaml").write_text("default_config:\n")
+    original = "default_config:\n"
+    (config / "configuration.yaml").write_text(original)
     entry = await setup_entry(hass)
     await entry.runtime_data.async_apply_recorder_changes(
         excluded={"sensor.x": True}, purge_now=False
     )
     flow = await repairs.async_create_fix_flow(hass, "packages_missing", None)
     flow.hass = hass
-    assert (await flow.async_step_init())["type"] == "form"
-    result = await flow.async_step_init({})
-    assert result["type"] == "create_entry"
-    assert "sensor.x" in (config / "packages" / PACKAGE_FILE).read_text()
+    form = await flow.async_step_init()
+    assert form["type"] == "form"
+    assert "packages: !include_dir_named packages" in form["description_placeholders"]["snippet"]
+    # confirmed before the user added the lines: nothing written, a hint instead
+    again = await flow.async_step_init({})
+    assert again["errors"] == {"base": "not_found"}
+    assert (config / "configuration.yaml").read_text() == original
+    assert not (config / "configuration.yaml.storage_manager.bak").exists()
+    assert not (config / "packages" / PACKAGE_FILE).exists()
 
-    (config / "configuration.yaml").write_text("homeassistant:\n  name: x\n")
-    flow = await repairs.async_create_fix_flow(hass, "packages_missing", None)
-    flow.hass = hass
-    assert (await flow.async_step_init({}))["reason"] == "manual"
+    # the user adds them; then Storage Manager writes only its own package file
+    added = "homeassistant:\n  packages: !include_dir_named packages\n" + original
+    (config / "configuration.yaml").write_text(added)
+    done = await flow.async_step_init({})
+    assert done["type"] == "create_entry"
+    assert (config / "configuration.yaml").read_text() == added
+    assert "sensor.x" in (config / "packages" / PACKAGE_FILE).read_text()
 
 
 async def test_ws_commands(hass: HomeAssistant, hass_ws_client) -> None:

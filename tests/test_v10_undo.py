@@ -347,20 +347,20 @@ async def test_undo_refused(hass: HomeAssistant) -> None:
     coordinator = entry.runtime_data
     preview = {"schema_ok": False, "free": 10, "need": 1, "enable": [], "statistics_on": []}
     with (
-        patch.object(coordinator, "async_undo_preview", AsyncMock(return_value=preview)),
+        patch.object(coordinator.undo, "async_preview", AsyncMock(return_value=preview)),
         pytest.raises(HomeAssistantError, match="undo_schema"),
     ):
         await coordinator.async_undo("1-a")
     preview = {**preview, "schema_ok": True, "free": 1, "need": 10}
     with (
-        patch.object(coordinator, "async_undo_preview", AsyncMock(return_value=preview)),
+        patch.object(coordinator.undo, "async_preview", AsyncMock(return_value=preview)),
         pytest.raises(HomeAssistantError, match="undo_no_space"),
     ):
         await coordinator.async_undo("1-a")
     preview = {**preview, "free": 10, "need": 1}
     async with coordinator._lock:
         with (
-            patch.object(coordinator, "async_undo_preview", AsyncMock(return_value=preview)),
+            patch.object(coordinator.undo, "async_preview", AsyncMock(return_value=preview)),
             pytest.raises(HomeAssistantError, match="running"),
         ):
             await coordinator.async_undo("1-a")
@@ -387,9 +387,11 @@ async def test_fallback_to_full_backup(hass: HomeAssistant) -> None:
     assert result["backup"] == backup
 
     # no space: blocked when the full backup is not possible either
-    await coordinator.async_run_analysis()  # the mocked purge left the rows
+    # the mocked purge left the rows; the analysis after the cleanup finds them again
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await coordinator.async_run_analysis()
     with (
-        patch("custom_components.storage_manager.coordinator.UNDO_SPACE_MARGIN", 1 << 60),
+        patch("custom_components.storage_manager.undo_service.UNDO_SPACE_MARGIN", 1 << 60),
         patch.object(
             safety,
             "async_recent_backup",
@@ -408,6 +410,7 @@ async def test_fallback_to_full_backup(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
+    await hass.async_block_till_done(wait_background_tasks=True)
     await coordinator.async_run_analysis()
     with (
         patch.object(undo, "export", side_effect=RuntimeError("boom")),
@@ -422,19 +425,19 @@ async def test_targeted_backup_off_and_unsupported(hass: HomeAssistant) -> None:
     """Without the option, or for the global purge, the plan shows the full backup."""
     entry = await setup_entry(hass, {"backup_before_delete": True, "targeted_backup": False})
     coordinator = entry.runtime_data
-    assert not coordinator._undo_planned(["orphans"])
+    assert not coordinator.undo.planned(["orphans"])
     hass.config_entries.async_update_entry(
         entry, options={**entry.options, "targeted_backup": True}
     )
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
-    assert coordinator._undo_planned(["orphans", "events"])
-    assert not coordinator._undo_planned(["orphans", "purge"])
-    assert not coordinator._undo_planned([])
+    assert coordinator.undo.planned(["orphans", "events"])
+    assert not coordinator.undo.planned(["orphans", "purge"])
+    assert not coordinator.undo.planned([])
     # only orphaned statistics, even when other ids are passed in
-    spec = await coordinator._undo_spec(["statistics"], None, ["demo:x"], None)
+    spec = await coordinator.undo.async_spec(["statistics"], None, ["demo:x"], None)
     assert spec.statistics == []
-    assert await coordinator._async_protect(undo.Spec(), 0, False, {}) is None
+    assert await coordinator.undo.async_protect(undo.Spec(), 0, False, {}) is None
 
 
 async def test_retention_now_with_undo(hass: HomeAssistant) -> None:

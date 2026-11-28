@@ -227,7 +227,8 @@ def test_backup_checks_problems() -> None:
     assert checks["size"]["status"] == health.WARNING
     assert checks["size"]["values"]["ratio"] == 0.1
     assert checks["encryption"]["values"]["agents"] == ["cloud.x"]
-    assert checks["database_included"]["status"] == health.WARNING
+    # no schedule: "include the database" says nothing yet
+    assert checks["database_included"]["status"] == health.INFO
     assert checks["space"]["status"] == health.WARNING
     assert checks["agents"]["values"]["agents"] == ["cloud.x", "nas.y"]
     assert checks["emergency_kit"]["status"] == health.INFO
@@ -279,6 +280,13 @@ def test_backup_checks_edges() -> None:
         )
     )
     assert local_only["encryption"]["status"] == health.UNKNOWN
+    # scheduled backups without the database: a real warning
+    no_db = _by_key(
+        health.backup_checks(
+            _info(include_database=False), disk_free=10_000 * MB, attestations={}, now=UTC_NOW
+        )
+    )
+    assert no_db["database_included"]["status"] == health.WARNING
 
 
 async def test_backup_info(hass: HomeAssistant) -> None:

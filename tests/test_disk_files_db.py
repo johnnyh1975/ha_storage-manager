@@ -6,6 +6,7 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -104,7 +105,9 @@ def test_scan_large_files_and_core_dumps(tmp_path: Path) -> None:
     big.parent.mkdir()
     with big.open("wb") as fh:
         fh.truncate(files.LARGE_FILE_MIN + 1)
-    (tmp_path / "core.123").write_bytes(b"d" * 10)
+    (tmp_path / "core.123").write_bytes(b"\x7fELF" + b"d" * 6)
+    # the user's own file with a matching name is never a dump
+    (tmp_path / "core.1.yaml").write_text("homeassistant:\n  name: Home\n")
     (tmp_path / "core").mkdir()  # a directory called core is not a dump
     (tmp_path / ".storage").mkdir()
     with (tmp_path / ".storage" / "huge").open("wb") as fh:
@@ -116,6 +119,14 @@ def test_scan_large_files_and_core_dumps(tmp_path: Path) -> None:
     assert [f["path"] for f in result["large_files"]] == ["www/video.mp4"]
     hogs = {h["key"]: h for h in result["hogs"]}
     assert hogs["core_dumps"]["size_bytes"] == 10
+    assert hogs["core_dumps"]["paths"] == ["core.123"]
+    unreadable = tmp_path / "core.9"
+    unreadable.write_bytes(b"\x7fELF")
+    unreadable.chmod(0)
+    try:
+        assert files.is_core_dump(unreadable) is (os.geteuid() == 0)
+    finally:
+        unreadable.chmod(0o644)
 
 
 def test_delete_contents_only_and_errors(tmp_path: Path) -> None:
@@ -276,3 +287,14 @@ async def test_panel_registered_once(prepared_hass: HomeAssistant) -> None:
     await setup_entry(prepared_hass)
     await panel.async_register(prepared_hass)
     assert "storage-manager" in prepared_hass.data["frontend_panels"]
+
+
+def test_core_dump_cleanup_keeps_own_files(tmp_path: Path) -> None:
+    """The safe cleanup deletes the dump and leaves a file that only shares the name."""
+    (tmp_path / "core.42").write_bytes(b"\x7fELF" + b"x" * 100)
+    own = tmp_path / "core.1.yaml"
+    own.write_text("sensor: []\n")
+    freed = files._delete_paths(str(tmp_path), files.HOGS_BY_KEY["core_dumps"])
+    assert freed == 104
+    assert not (tmp_path / "core.42").exists()
+    assert own.exists()

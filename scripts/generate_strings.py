@@ -202,15 +202,15 @@ def build(lang):
                         "init": {
                             "title": t("Set up packages", "Packages einrichten"),
                             "description": t(
-                                "Storage Manager writes recorder exclusions into a package file. Your configuration.yaml has no packages folder yet. Confirm to append these lines (a backup copy of configuration.yaml is created first):\n\n```yaml\n{snippet}```",
-                                "Storage Manager schreibt Recorder-Ausschlüsse in eine Package-Datei. Deine configuration.yaml hat noch keinen Packages-Ordner. Bestätige, um diese Zeilen anzuhängen (vorher wird eine Sicherungskopie der configuration.yaml angelegt):\n\n```yaml\n{snippet}```",
+                                "Storage Manager writes recorder exclusions into its own package file and never changes your configuration.yaml. Add these lines to it yourself (if it already has a homeassistant: section, add only the packages: line under it), then confirm here and restart:\n\n```yaml\n{snippet}```",
+                                "Storage Manager schreibt Recorder-Ausschlüsse in eine eigene Package-Datei und ändert deine configuration.yaml nie. Füge diese Zeilen selbst ein (gibt es schon einen Abschnitt homeassistant:, dann nur die Zeile packages: darunter), bestätige hier und starte neu:\n\n```yaml\n{snippet}```",
                             ),
                         }
                     },
-                    "abort": {
-                        "manual": t(
-                            "Your configuration.yaml already has a homeassistant: section. Add this line under it yourself and restart:\n\n```yaml\n{snippet}```",
-                            "Deine configuration.yaml hat bereits einen homeassistant:-Abschnitt. Füge diese Zeile dort selbst ein und starte neu:\n\n```yaml\n{snippet}```",
+                    "error": {
+                        "not_found": t(
+                            "The packages line is not in configuration.yaml yet.",
+                            "Die Zeile packages: steht noch nicht in der configuration.yaml.",
                         )
                     },
                 },

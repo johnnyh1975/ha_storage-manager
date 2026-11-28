@@ -128,11 +128,11 @@
         "step": {
           "init": {
             "title": "Packages einrichten",
-            "description": "Storage Manager schreibt Recorder-Ausschlüsse in eine Package-Datei. Deine configuration.yaml hat noch keinen Packages-Ordner. Bestätige, um diese Zeilen anzuhängen (vorher wird eine Sicherungskopie der configuration.yaml angelegt):\n\n```yaml\n{snippet}```"
+            "description": "Storage Manager schreibt Recorder-Ausschlüsse in eine eigene Package-Datei und ändert deine configuration.yaml nie. Füge diese Zeilen selbst ein (gibt es schon einen Abschnitt homeassistant:, dann nur die Zeile packages: darunter), bestätige hier und starte neu:\n\n```yaml\n{snippet}```"
           }
         },
-        "abort": {
-          "manual": "Deine configuration.yaml hat bereits einen homeassistant:-Abschnitt. Füge diese Zeile dort selbst ein und starte neu:\n\n```yaml\n{snippet}```"
+        "error": {
+          "not_found": "Die Zeile packages: steht noch nicht in der configuration.yaml."
         }
       }
     },

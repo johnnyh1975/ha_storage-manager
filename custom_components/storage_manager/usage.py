@@ -406,6 +406,15 @@ async def async_energy_statistics(hass: HomeAssistant) -> set[str]:
     return await _energy_entities(hass)
 
 
+def _is_total(hass: HomeAssistant, entity_id: str) -> bool:
+    """A sensor the energy dashboard could read: its statistics have a sum."""
+    state = hass.states.get(entity_id)
+    return state is not None and state.attributes.get("state_class") in (
+        "total",
+        "total_increasing",
+    )
+
+
 def _helpers(hass: HomeAssistant) -> dict[str, list[dict[str, str]]]:
     out: dict[str, list[dict[str, str]]] = {}
     for entry in hass.config_entries.async_entries():
@@ -421,7 +430,14 @@ async def async_collect(hass: HomeAssistant, entity_ids: Iterable[str]) -> dict[
     """Usage for the given entities (others are skipped for speed)."""
     wanted = set(entity_ids)
     dashboards, mentions = await _dashboards(hass)
-    energy = await _energy_entities(hass)
+    try:
+        energy = await async_energy_statistics(hass)
+        energy_unknown = False
+    except EnergyUnknownError as err:
+        # the energy dashboard is set up but unreadable: every sensor it could
+        # read (a total) counts as used, rather than looking unused
+        _LOGGER.warning("%s; totals count as used by the energy dashboard", err)
+        energy, energy_unknown = set(), True
     helpers = _helpers(hass)
     for entity_id, readers in yaml_history_readers(hass).items():
         helpers.setdefault(entity_id, []).extend(readers)
@@ -451,7 +467,7 @@ async def async_collect(hass: HomeAssistant, entity_ids: Iterable[str]) -> dict[
             scripts=sorted(scripts_fn(hass, entity_id)) if scripts_fn else [],
             helpers=helpers.get(entity_id, []),
             dashboards=[d for d in dashboards.get(entity_id, []) if d["days"]],
-            energy=entity_id in energy,
+            energy=entity_id in energy or (energy_unknown and _is_total(hass, entity_id)),
             statistics_cards=sorted(
                 {d["dashboard"] for d in dashboards.get(entity_id, []) if not d["days"]}
             ),

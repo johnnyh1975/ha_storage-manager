@@ -27,7 +27,8 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.recorder import get_instance
+
+from .recorder_tasks import async_run_on_recorder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -190,62 +191,6 @@ def incremental_job(pages: int) -> Callable[[Any], None]:
             conn.close()
 
     return _run
-
-
-def tasks_available() -> bool:
-    """Whether jobs can run on the recorder thread (internal API, guarded)."""
-    try:
-        from homeassistant.components.recorder.tasks import (  # noqa: PLC0415
-            RecorderTask,  # noqa: F401
-        )
-    except ImportError:  # pragma: no cover - recorder internals changed
-        return False
-    return True
-
-
-def _make_task(job: Callable[[Any], None], done: Callable[[BaseException | None], None]) -> Any:
-    """Wrap ``job`` in a recorder task; None if the internals moved."""
-    try:
-        from homeassistant.components.recorder.tasks import (  # noqa: PLC0415
-            RecorderTask,
-        )
-    except ImportError:  # pragma: no cover - recorder internals changed
-        return None
-
-    class _StorageManagerTask(RecorderTask):
-        commit_before = True
-
-        def run(self, instance: Any) -> None:
-            try:
-                job(instance)
-            except Exception as err:  # noqa: BLE001 - handed to the caller
-                done(err)
-                return
-            done(None)
-
-    return _StorageManagerTask()
-
-
-async def async_run_on_recorder(hass: HomeAssistant, job: Callable[[Any], None]) -> bool:
-    """Run ``job`` on the recorder thread. False if that is not possible."""
-    loop = hass.loop
-    future: Any = loop.create_future()
-
-    def _resolve(err: BaseException | None) -> None:
-        if not future.done():
-            future.set_result(err)
-
-    def done(err: BaseException | None) -> None:
-        loop.call_soon_threadsafe(_resolve, err)
-
-    task = _make_task(job, done)
-    if task is None:  # pragma: no cover - recorder internals changed
-        return False
-    get_instance(hass).queue_task(task)
-    error = await future
-    if error is not None:
-        raise HomeAssistantError(f"Recorder task failed: {error}") from error
-    return True
 
 
 async def async_layout(hass: HomeAssistant, path: Path | None) -> SqliteLayout | None:

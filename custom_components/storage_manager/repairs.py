@@ -6,8 +6,6 @@ https://github.com/tonylofgren/aurora-smart-home
 
 from __future__ import annotations
 
-from pathlib import Path
-import shutil
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
@@ -26,7 +24,7 @@ from .const import (
     ISSUE_RESTART,
     PANEL_URL_PATH,
 )
-from .recorder_config import HOMEASSISTANT_RE, PACKAGES_RE, packages_snippet
+from .recorder_config import packages_snippet
 
 if TYPE_CHECKING:
     from .coordinator import StorageCoordinator
@@ -231,49 +229,29 @@ class RestartRepairFlow(RepairsFlow):
         return self.async_show_form(step_id="init", description_placeholders={"count": str(count)})
 
 
-def setup_packages(config_dir: str) -> str:
-    """Add a packages include to configuration.yaml if that is safe (blocking).
-
-    Returns "added", "exists" or "manual" (homeassistant: block present,
-    the user has to add the line themselves).
-    """
-    config_file = Path(config_dir) / "configuration.yaml"
-    content = config_file.read_text(encoding="utf-8")
-    if PACKAGES_RE.search(content):
-        return "exists"
-    if "packages:" in content or HOMEASSISTANT_RE.search(content):
-        return "manual"
-    shutil.copy2(config_file, config_file.with_name("configuration.yaml.storage_manager.bak"))
-    separator = "" if content.endswith("\n") else "\n"
-    config_file.write_text(
-        content + separator + "\n# Added by Storage Manager\n" + packages_snippet(),
-        encoding="utf-8",
-    )
-    (Path(config_dir) / "packages").mkdir(exist_ok=True)
-    return "added"
-
-
 class PackagesRepairFlow(RepairsFlow):
-    """Set up packages so recorder exclusions can be written."""
+    """Show the packages include for the user to add; never edit their YAML.
+
+    configuration.yaml is the user's file: an append can break a layout with
+    anchors, !include splits or comments. The flow shows the lines, and once
+    they are there it writes Storage Manager's own package file.
+    """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> RepairsFlowResult:
-        """Confirm adding the packages include."""
+        """Show the lines; on confirm, check they are there."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            result = await self.hass.async_add_executor_job(
-                setup_packages, self.hass.config.config_dir
-            )
-            if result == "manual":
-                return self.async_abort(
-                    reason="manual",
-                    description_placeholders={"snippet": packages_snippet()},
-                )
             coordinator = _coordinator(self.hass)
             if coordinator is not None:
                 await coordinator.async_detect_packages()
-                await coordinator.async_apply_recorder_changes(purge_now=False)
-            return self.async_create_entry(data={})
+                if coordinator.packages.available:
+                    await coordinator.async_apply_recorder_changes(purge_now=False)
+                    return self.async_create_entry(data={})
+            errors["base"] = "not_found"
         return self.async_show_form(
-            step_id="init", description_placeholders={"snippet": packages_snippet()}
+            step_id="init",
+            description_placeholders={"snippet": packages_snippet()},
+            errors=errors,
         )
 
 

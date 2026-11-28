@@ -28,9 +28,10 @@ import probatio as vol
 
 from . import advisor, database, files
 from .const import ALL_TIERS, DOMAIN, SIGNAL_UPDATED
-from .coordinator import ALL_CLEAN_TARGETS, StorageCoordinator
+from .coordinator import StorageCoordinator
 from .health import ATTESTATIONS
 from .repack import REPACK_METHODS
+from .targets import ALL_CLEAN_TARGETS
 
 ENTITY_ID = vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"))
 
@@ -252,6 +253,7 @@ async def _clean(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         repack_method=msg.get("repack_method"),
         convert=msg.get("convert", True),
         event_types=msg.get("event_types"),
+        plan_id=msg.get("plan_id"),
     )
 
 
@@ -519,6 +521,7 @@ def async_setup(hass: HomeAssistant) -> None:
             vol.Optional("repack_method"): vol.In(list(REPACK_METHODS)),
             vol.Optional("convert", default=True): bool,
             vol.Optional("event_types"): [str],
+            vol.Optional("plan_id"): vol.All(str, vol.Length(min=1, max=64)),
         },
         _clean,
     )

@@ -128,11 +128,11 @@
         "step": {
           "init": {
             "title": "Set up packages",
-            "description": "Storage Manager writes recorder exclusions into a package file. Your configuration.yaml has no packages folder yet. Confirm to append these lines (a backup copy of configuration.yaml is created first):\n\n```yaml\n{snippet}```"
+            "description": "Storage Manager writes recorder exclusions into its own package file and never changes your configuration.yaml. Add these lines to it yourself (if it already has a homeassistant: section, add only the packages: line under it), then confirm here and restart:\n\n```yaml\n{snippet}```"
           }
         },
-        "abort": {
-          "manual": "Your configuration.yaml already has a homeassistant: section. Add this line under it yourself and restart:\n\n```yaml\n{snippet}```"
+        "error": {
+          "not_found": "The packages line is not in configuration.yaml yet."
         }
       }
     },

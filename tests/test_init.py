@@ -213,6 +213,8 @@ async def test_cleanup_action_dry_run(hass: HomeAssistant, setup_hass) -> None:
         return_response=True,
     )
     assert response["dry_run"] is True
+    # the action has no use for a plan id: it selects when it runs
+    assert "plan_id" not in response
     assert response["files"]["bytes"] >= 2048
     response = await hass.services.async_call(
         DOMAIN, "cleanup", {"targets": ["files"]}, blocking=True, return_response=True

@@ -1,0 +1,5255 @@
+{
+ "apply_preview": {
+  "bytes": 19381018,
+  "entities": 1,
+  "safety": {
+   "backup": {
+    "action": "undo",
+    "fallback": true
+   },
+   "integrity": "cached",
+   "space": {
+    "backup": 0,
+    "backup_source": null,
+    "free": 29855817728,
+    "need": 536870912,
+    "ok": true,
+    "undo": 76799373,
+    "work": 536870912
+   }
+  }
+ },
+ "backups": {
+  "plan": [
+   {
+    "action": "keep",
+    "automatic": false,
+    "backup_id": "507d23d3",
+    "date": "2026-11-22T21:54:24.430206+01:00",
+    "local_agents": [
+     "backup.local"
+    ],
+    "local_size": 22364160,
+    "name": "Storage Manager 2026-11-22 21:54",
+    "reason": "newest",
+    "remote_agents": [],
+    "size": 22364160
+   },
+   {
+    "action": "keep",
+    "automatic": false,
+    "backup_id": "a8e84630",
+    "date": "2026-11-14T09:18:25.578655+01:00",
+    "local_agents": [
+     "backup.local"
+    ],
+    "local_size": 10219520,
+    "name": "Storage Manager 2026-11-14 09:18",
+    "reason": "daily",
+    "remote_agents": [],
+    "size": 10219520
+   }
+  ],
+  "summary": {
+   "available": true,
+   "count": 2,
+   "deletable_bytes": 0,
+   "deletable_count": 0,
+   "local_count": 2,
+   "local_total": 32583680,
+   "only_local_count": 0,
+   "rotation_enabled": false
+  }
+ },
+ "dead_entities": {
+  "bytes": 72307,
+  "disabled": [
+   {
+    "at": "2026-11-28T05:52:31.100638+00:00",
+    "entity_id": "sensor.attic_fan_power",
+    "name": "Attic Fan Power"
+   }
+  ],
+  "items": [
+   {
+    "bytes": 72307,
+    "dynamic": false,
+    "entity_id": "sensor.old_plug_power",
+    "kind": "unavailable",
+    "name": "Old Plug Power",
+    "platform": "template",
+    "selectable": true,
+    "since": 1794410470.2612946,
+    "used": null
+   },
+   {
+    "bytes": 72134,
+    "dynamic": false,
+    "entity_id": "sensor.basement_humidity",
+    "kind": "unavailable",
+    "name": "Basement Humidity",
+    "platform": "template",
+    "selectable": false,
+    "since": 1794410470.2612946,
+    "used": {
+     "automations": [
+      "automation.basement_too_humid"
+     ],
+     "dashboard_cards": [],
+     "dashboards": [],
+     "dynamic": [],
+     "energy": false,
+     "helpers": [],
+     "history_readers": [],
+     "min_days": 0,
+     "scripts": [],
+     "statistics_cards": [],
+     "yaml": []
+    }
+   },
+   {
+    "bytes": 72112,
+    "dynamic": false,
+    "entity_id": "sensor.legacy_pool_temperature",
+    "kind": "yaml",
+    "name": "Legacy Pool Temperature",
+    "platform": null,
+    "selectable": false,
+    "since": 1794410470.2612946,
+    "used": null
+   }
+  ]
+ },
+ "entities": {
+  "analysis_at": 1795846809.9659796,
+  "calibrated": true,
+  "changes": [
+   "2026-11-13T19:26:05.620287+00:00",
+   "2026-11-14T07:18:37.723756+00:00",
+   "2026-11-14T08:18:26.827627+00:00",
+   "2026-11-14T08:18:33.397424+00:00",
+   "2026-11-14T08:18:33.705629+00:00",
+   "2026-11-14T08:18:43.237850+00:00",
+   "2026-11-22T20:54:28.986562+00:00",
+   "2026-11-28T05:49:43.550569+00:00",
+   "2026-11-28T05:50:29.469879+00:00",
+   "2026-11-28T05:51:33.501058+00:00",
+   "2026-11-28T05:52:33.318243+00:00",
+   "2026-11-28T06:20:08.555904+00:00"
+  ],
+  "dialect": "sqlite",
+  "dismissed_count": 0,
+  "estimated_sizes": false,
+  "event_types": [
+   {
+    "deletable": true,
+    "est_bytes": 928858,
+    "event_type": "service_registered",
+    "excluded": false,
+    "logbook": false,
+    "rows": 7660
+   },
+   {
+    "deletable": true,
+    "est_bytes": 414106,
+    "event_type": "component_loaded",
+    "excluded": false,
+    "logbook": false,
+    "rows": 3415
+   },
+   {
+    "deletable": true,
+    "est_bytes": 48504,
+    "event_type": "tuya_status_update",
+    "excluded": false,
+    "logbook": false,
+    "rows": 400
+   },
+   {
+    "deletable": true,
+    "est_bytes": 24373,
+    "event_type": "panels_updated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 201
+   },
+   {
+    "deletable": true,
+    "est_bytes": 17340,
+    "event_type": "entity_registry_updated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 143
+   },
+   {
+    "deletable": true,
+    "est_bytes": 11641,
+    "event_type": "repairs_issue_registry_updated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 96
+   },
+   {
+    "deletable": true,
+    "est_bytes": 8488,
+    "event_type": "core_config_updated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 70
+   },
+   {
+    "deletable": true,
+    "est_bytes": 5214,
+    "event_type": "recorder_5min_statistics_generated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 43
+   },
+   {
+    "deletable": true,
+    "est_bytes": 4244,
+    "event_type": "homeassistant_start",
+    "excluded": false,
+    "logbook": true,
+    "rows": 35
+   },
+   {
+    "deletable": true,
+    "est_bytes": 4244,
+    "event_type": "homeassistant_started",
+    "excluded": false,
+    "logbook": false,
+    "rows": 35
+   },
+   {
+    "deletable": true,
+    "est_bytes": 3637,
+    "event_type": "demo_noise",
+    "excluded": false,
+    "logbook": false,
+    "rows": 30
+   },
+   {
+    "deletable": true,
+    "est_bytes": 3395,
+    "event_type": "homeassistant_stop",
+    "excluded": false,
+    "logbook": true,
+    "rows": 28
+   },
+   {
+    "deletable": true,
+    "est_bytes": 2061,
+    "event_type": "device_registry_updated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 17
+   },
+   {
+    "deletable": true,
+    "est_bytes": 1091,
+    "event_type": "logging_changed",
+    "excluded": false,
+    "logbook": false,
+    "rows": 9
+   },
+   {
+    "deletable": true,
+    "est_bytes": 485,
+    "event_type": "recorder_hourly_statistics_generated",
+    "excluded": false,
+    "logbook": false,
+    "rows": 4
+   }
+  ],
+  "events": [
+   {
+    "est_bytes": 928858,
+    "event_type": "service_registered",
+    "rows": 7660
+   },
+   {
+    "est_bytes": 414106,
+    "event_type": "component_loaded",
+    "rows": 3415
+   },
+   {
+    "est_bytes": 48504,
+    "event_type": "tuya_status_update",
+    "rows": 400
+   },
+   {
+    "est_bytes": 24373,
+    "event_type": "panels_updated",
+    "rows": 201
+   },
+   {
+    "est_bytes": 17340,
+    "event_type": "entity_registry_updated",
+    "rows": 143
+   },
+   {
+    "est_bytes": 11641,
+    "event_type": "repairs_issue_registry_updated",
+    "rows": 96
+   },
+   {
+    "est_bytes": 8488,
+    "event_type": "core_config_updated",
+    "rows": 70
+   },
+   {
+    "est_bytes": 5214,
+    "event_type": "recorder_5min_statistics_generated",
+    "rows": 43
+   },
+   {
+    "est_bytes": 4244,
+    "event_type": "homeassistant_start",
+    "rows": 35
+   },
+   {
+    "est_bytes": 4244,
+    "event_type": "homeassistant_started",
+    "rows": 35
+   },
+   {
+    "est_bytes": 3637,
+    "event_type": "demo_noise",
+    "rows": 30
+   },
+   {
+    "est_bytes": 3395,
+    "event_type": "homeassistant_stop",
+    "rows": 28
+   },
+   {
+    "est_bytes": 2061,
+    "event_type": "device_registry_updated",
+    "rows": 17
+   },
+   {
+    "est_bytes": 1091,
+    "event_type": "logging_changed",
+    "rows": 9
+   },
+   {
+    "est_bytes": 485,
+    "event_type": "recorder_hourly_statistics_generated",
+    "rows": 4
+   }
+  ],
+  "inbox": [
+   {
+    "action": "7",
+    "conflict": true,
+    "entity_id": "sensor.noisy_power",
+    "facts": {
+     "attr_only_share": 0.0,
+     "attr_share": 0.0,
+     "device_class": "power",
+     "entity_category": null,
+     "state_class": "measurement"
+    },
+    "name": "Noisy Power",
+    "notes": [],
+    "protected": null,
+    "reason": "conflict_dashboard",
+    "saving": 0,
+    "used": {
+     "automations": 0,
+     "dashboards": 1,
+     "dynamic": 0,
+     "energy": false,
+     "helpers": 0,
+     "min_days": 7,
+     "scripts": 0,
+     "statistics_cards": 0,
+     "yaml": 0
+    }
+   },
+   {
+    "action": "1",
+    "entity_id": "sensor.weather_forecast_blob",
+    "facts": {
+     "attr_only_share": 0.15,
+     "attr_share": 0.91,
+     "device_class": null,
+     "entity_category": null,
+     "state_class": null
+    },
+    "group": "attributes:template",
+    "group_member": false,
+    "name": "Weather Forecast Blob",
+    "notes": [],
+    "protected": null,
+    "reason": "attributes",
+    "saving": 16912513,
+    "used": {
+     "automations": 0,
+     "dashboards": 0,
+     "dynamic": 0,
+     "energy": false,
+     "helpers": 0,
+     "min_days": 0,
+     "scripts": 0,
+     "statistics_cards": 0,
+     "yaml": 0
+    }
+   },
+   {
+    "action": "excluded",
+    "entity_id": "sensor.plug_uptime",
+    "facts": {
+     "attr_only_share": 0.0,
+     "attr_share": 0.0,
+     "device_class": null,
+     "entity_category": null,
+     "state_class": null
+    },
+    "group": "noise:template",
+    "group_member": false,
+    "name": "Plug Uptime",
+    "notes": [],
+    "protected": null,
+    "reason": "noise",
+    "saving": 2487118,
+    "used": {
+     "automations": 0,
+     "dashboards": 0,
+     "dynamic": 0,
+     "energy": false,
+     "helpers": 0,
+     "min_days": 0,
+     "scripts": 0,
+     "statistics_cards": 0,
+     "yaml": 0
+    }
+   },
+   {
+    "action": "3",
+    "entity_id": "sensor.lux_mittel",
+    "facts": {
+     "attr_only_share": 0.0,
+     "attr_share": 0.01,
+     "device_class": null,
+     "entity_category": null,
+     "state_class": "measurement"
+    },
+    "group": "statistics_kept:statistics",
+    "group_member": false,
+    "name": "Lux Mittel",
+    "notes": [],
+    "protected": null,
+    "reason": "statistics_kept",
+    "saving": 1498810,
+    "used": {
+     "automations": 0,
+     "dashboards": 0,
+     "dynamic": 0,
+     "energy": false,
+     "helpers": 0,
+     "min_days": 0,
+     "scripts": 0,
+     "statistics_cards": 0,
+     "yaml": 0
+    }
+   },
+   {
+    "action": "3",
+    "entity_id": "sensor.living_room_temperature",
+    "facts": {
+     "attr_only_share": 0.0,
+     "attr_share": 0.0,
+     "device_class": "temperature",
+     "entity_category": null,
+     "state_class": "measurement"
+    },
+    "group": "statistics_kept:template",
+    "group_member": false,
+    "name": "Living Room Temperature",
+    "notes": [
+     "automation"
+    ],
+    "protected": null,
+    "reason": "statistics_kept",
+    "saving": 1271720,
+    "used": {
+     "automations": 1,
+     "dashboards": 0,
+     "dynamic": 0,
+     "energy": false,
+     "helpers": 0,
+     "min_days": 0,
+     "scripts": 0,
+     "statistics_cards": 0,
+     "yaml": 0
+    }
+   },
+   {
+    "action": "7",
+    "entity_id": "sensor.grid_energy",
+    "facts": {
+     "attr_only_share": 0.0,
+     "attr_share": 0.0,
+     "device_class": "energy",
+     "entity_category": null,
+     "state_class": "total_increasing"
+    },
+    "group": "energy_statistics:template",
+    "group_member": false,
+    "name": "Grid Energy",
+    "notes": [],
+    "protected": null,
+    "reason": "energy_statistics",
+    "saving": 0,
+    "used": {
+     "automations": 0,
+     "dashboards": 0,
+     "dynamic": 0,
+     "energy": true,
+     "helpers": 0,
+     "min_days": 0,
+     "scripts": 0,
+     "statistics_cards": 0,
+     "yaml": 0
+    }
+   }
+  ],
+  "inbox_saving": 22170161,
+  "integration_names": {
+   "automation": "Automation",
+   "backup": "Backup",
+   "conversation": "Conversation",
+   "google_translate": "Google Translate text-to-speech",
+   "person": "Person",
+   "sensor": "Sensor",
+   "shopping_list": "Shopping list",
+   "statistics": "Statistics",
+   "storage_manager": "Storage Manager",
+   "template": "Template",
+   "zone": "Zone"
+  },
+  "keep_days": 10,
+  "kinds": [
+   {
+    "auto": null,
+    "bytes": 4154759,
+    "default": "excluded",
+    "entities": 7,
+    "kind": "noise",
+    "saving": 2518545,
+    "statistics_only": false,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 0,
+    "default": "excluded",
+    "entities": 0,
+    "kind": "time",
+    "saving": 0,
+    "statistics_only": false,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 31032,
+    "default": "3",
+    "entities": 1,
+    "kind": "power",
+    "saving": 0,
+    "statistics_only": true,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 1267588,
+    "default": "7",
+    "entities": 1,
+    "kind": "energy",
+    "saving": 0,
+    "statistics_only": true,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 0,
+    "default": "7",
+    "entities": 0,
+    "kind": "gps",
+    "saving": 0,
+    "statistics_only": false,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 0,
+    "default": "1",
+    "entities": 0,
+    "kind": "presence",
+    "saving": 0,
+    "statistics_only": false,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 0,
+    "default": "3",
+    "entities": 0,
+    "kind": "attribute_updates",
+    "saving": 0,
+    "statistics_only": false,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 19381018,
+    "default": "3",
+    "entities": 1,
+    "kind": "attributes",
+    "saving": 16912513,
+    "statistics_only": false,
+    "value": null
+   },
+   {
+    "auto": null,
+    "bytes": 6193565,
+    "default": "3",
+    "entities": 3,
+    "kind": "frequent",
+    "saving": 4256134,
+    "statistics_only": false,
+    "value": null
+   }
+  ],
+  "loose_attribute_bytes": 0,
+  "packages_available": true,
+  "rest_bytes": 11988785,
+  "rest_count": 43,
+  "rows": [
+   {
+    "advice": {
+     "action": "1",
+     "facts": {
+      "attr_only_share": 0.15,
+      "attr_share": 0.91,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "group": "attributes:template",
+     "group_member": false,
+     "notes": [],
+     "protected": null,
+     "reason": "attributes",
+     "saving": 16912513,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 1439,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.weather_forecast_blob",
+    "est_bytes": 19381018,
+    "est_state_bytes": 19381018,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Weather Forecast Blob",
+    "newest": null,
+    "oldest": 1793862612.549893,
+    "orphan": false,
+    "recorded": true,
+    "rows": 9822,
+    "rows_24h": 1251,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": "excluded",
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "group": "noise:template",
+     "group_member": false,
+     "notes": [],
+     "protected": null,
+     "reason": "noise",
+     "saving": 2487118,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.plug_uptime",
+    "est_bytes": 2851594,
+    "est_state_bytes": 2487118,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Plug Uptime",
+    "newest": null,
+    "oldest": 1793862580.4198148,
+    "orphan": false,
+    "recorded": true,
+    "rows": 14322,
+    "rows_24h": 1251,
+    "stat_rows": 6000,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": "3",
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "group": "statistics_kept:statistics",
+     "group_member": false,
+     "notes": [],
+     "protected": null,
+     "reason": "statistics_kept",
+     "saving": 1498810,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lux_mittel",
+    "est_bytes": 2421283,
+    "est_state_bytes": 2156735,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "statistics",
+    "name": "Lux Mittel",
+    "newest": null,
+    "oldest": 1793862579.9304,
+    "orphan": false,
+    "recorded": true,
+    "rows": 12283,
+    "rows_24h": 1249,
+    "stat_rows": 4355,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": "3",
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": "temperature",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "group": "statistics_kept:template",
+     "group_member": false,
+     "notes": [
+      "automation"
+     ],
+     "protected": null,
+     "reason": "statistics_kept",
+     "saving": 1271720,
+     "used": {
+      "automations": 1,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.living_room_temperature",
+    "est_bytes": 2165738,
+    "est_state_bytes": 1901068,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Living Room Temperature",
+    "newest": null,
+    "oldest": 1793862909.367968,
+    "orphan": false,
+    "recorded": true,
+    "rows": 10947,
+    "rows_24h": 1208,
+    "stat_rows": 4357,
+    "tier": "default",
+    "top": true,
+    "used": "yes"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": "history_reader",
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 1,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.hallway_lux",
+    "est_bytes": 2135762,
+    "est_state_bytes": 2135762,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Hallway Lux",
+    "newest": null,
+    "oldest": 1793862574.4020586,
+    "orphan": false,
+    "recorded": true,
+    "rows": 12299,
+    "rows_24h": 1248,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": true,
+    "used": "yes"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "group": "noise:template",
+     "group_member": false,
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.wifi_rssi_kitchen",
+    "est_bytes": 1999272,
+    "est_state_bytes": 1634796,
+    "excluded": true,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Wifi RSSI Kitchen",
+    "newest": null,
+    "oldest": 1793862532.8886218,
+    "orphan": false,
+    "recorded": false,
+    "rows": 9414,
+    "rows_24h": 0,
+    "stat_rows": 6000,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.time",
+    "est_bytes": 1736680,
+    "est_state_bytes": 1736680,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.time",
+    "newest": null,
+    "oldest": 1793958213.903214,
+    "orphan": true,
+    "recorded": true,
+    "rows": 10001,
+    "rows_24h": 0,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": "7",
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": "energy",
+      "entity_category": null,
+      "state_class": "total_increasing"
+     },
+     "group": "energy_statistics:template",
+     "group_member": false,
+     "notes": [],
+     "protected": null,
+     "reason": "energy_statistics",
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": true,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.grid_energy",
+    "est_bytes": 1532258,
+    "est_state_bytes": 1267588,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Grid Energy",
+    "newest": null,
+    "oldest": 1794640005.983244,
+    "orphan": false,
+    "recorded": true,
+    "rows": 7299,
+    "rows_24h": 1249,
+    "stat_rows": 4357,
+    "tier": "default",
+    "top": true,
+    "used": "yes"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_10_power",
+    "est_bytes": 651660,
+    "est_state_bytes": 651478,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_10_power",
+    "newest": null,
+    "oldest": 1793958211.7750206,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3751,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_26_power",
+    "est_bytes": 647319,
+    "est_state_bytes": 647137,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_26_power",
+    "newest": null,
+    "oldest": 1793958213.0864632,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_37_power",
+    "est_bytes": 647319,
+    "est_state_bytes": 647137,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_37_power",
+    "newest": null,
+    "oldest": 1793958213.6290236,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_30_power",
+    "est_bytes": 647319,
+    "est_state_bytes": 647137,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_30_power",
+    "newest": null,
+    "oldest": 1793958213.3159468,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_24_power",
+    "est_bytes": 647319,
+    "est_state_bytes": 647137,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_24_power",
+    "newest": null,
+    "oldest": 1793958212.9529176,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_11_power",
+    "est_bytes": 647319,
+    "est_state_bytes": 647137,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_11_power",
+    "newest": null,
+    "oldest": 1793958211.8264792,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_16_power",
+    "est_bytes": 647319,
+    "est_state_bytes": 647137,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_16_power",
+    "newest": null,
+    "oldest": 1793958212.2906263,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_8_power",
+    "est_bytes": 647318,
+    "est_state_bytes": 647136,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_8_power",
+    "newest": null,
+    "oldest": 1793958211.6185443,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_7_power",
+    "est_bytes": 647318,
+    "est_state_bytes": 647136,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_7_power",
+    "newest": null,
+    "oldest": 1793958211.4725003,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_1_power",
+    "est_bytes": 647318,
+    "est_state_bytes": 647136,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_1_power",
+    "newest": null,
+    "oldest": 1793958211.0644183,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_2_power",
+    "est_bytes": 647318,
+    "est_state_bytes": 647136,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_2_power",
+    "newest": null,
+    "oldest": 1793958211.1444874,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_5_power",
+    "est_bytes": 647318,
+    "est_state_bytes": 647136,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_5_power",
+    "newest": null,
+    "oldest": 1793958211.3197176,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3726,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_31_power",
+    "est_bytes": 642978,
+    "est_state_bytes": 642796,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_31_power",
+    "newest": null,
+    "oldest": 1793958213.3616147,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_38_power",
+    "est_bytes": 642978,
+    "est_state_bytes": 642796,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_38_power",
+    "newest": null,
+    "oldest": 1793958213.7423189,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_22_power",
+    "est_bytes": 642978,
+    "est_state_bytes": 642796,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_22_power",
+    "newest": null,
+    "oldest": 1793958212.8404174,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_23_power",
+    "est_bytes": 642978,
+    "est_state_bytes": 642796,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_23_power",
+    "newest": null,
+    "oldest": 1793958212.8953762,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_27_power",
+    "est_bytes": 642978,
+    "est_state_bytes": 642796,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_27_power",
+    "newest": null,
+    "oldest": 1793958213.137893,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_35_power",
+    "est_bytes": 642978,
+    "est_state_bytes": 642796,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_35_power",
+    "newest": null,
+    "oldest": 1793958213.5209644,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_4_power",
+    "est_bytes": 642977,
+    "est_state_bytes": 642795,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_4_power",
+    "newest": null,
+    "oldest": 1793958211.2514172,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_6_power",
+    "est_bytes": 642977,
+    "est_state_bytes": 642795,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_6_power",
+    "newest": null,
+    "oldest": 1793958211.3904572,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3701,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_29_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_29_power",
+    "newest": null,
+    "oldest": 1793958213.2608614,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_12_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_12_power",
+    "newest": null,
+    "oldest": 1793958211.8783436,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_33_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_33_power",
+    "newest": null,
+    "oldest": 1793958213.4426405,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_17_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_17_power",
+    "newest": null,
+    "oldest": 1793958212.5065963,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_19_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_19_power",
+    "newest": null,
+    "oldest": 1793958212.6157687,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_32_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_32_power",
+    "newest": null,
+    "oldest": 1793958213.407503,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_34_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_34_power",
+    "newest": null,
+    "oldest": 1793958213.4795878,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_36_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_36_power",
+    "newest": null,
+    "oldest": 1793958213.562464,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_20_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_20_power",
+    "newest": null,
+    "oldest": 1793958212.7410688,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_25_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_25_power",
+    "newest": null,
+    "oldest": 1793958213.0263484,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_21_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_21_power",
+    "newest": null,
+    "oldest": 1793958212.7860963,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_14_power",
+    "est_bytes": 638637,
+    "est_state_bytes": 638455,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_14_power",
+    "newest": null,
+    "oldest": 1793958212.0354357,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": true,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_9_power",
+    "est_bytes": 638636,
+    "est_state_bytes": 638454,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_9_power",
+    "newest": null,
+    "oldest": 1793958211.7116165,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_3_power",
+    "est_bytes": 638636,
+    "est_state_bytes": 638454,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_3_power",
+    "newest": null,
+    "oldest": 1793958211.2090213,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3676,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_18_power",
+    "est_bytes": 634295,
+    "est_state_bytes": 634113,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_18_power",
+    "newest": null,
+    "oldest": 1793958212.5622685,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3651,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_15_power",
+    "est_bytes": 634295,
+    "est_state_bytes": 634113,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_15_power",
+    "newest": null,
+    "oldest": 1793958212.110806,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3651,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_39_power",
+    "est_bytes": 634295,
+    "est_state_bytes": 634113,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_39_power",
+    "newest": null,
+    "oldest": 1793958213.8136938,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3651,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_0_power",
+    "est_bytes": 634294,
+    "est_state_bytes": 634112,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_0_power",
+    "newest": null,
+    "oldest": 1793958210.9982712,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3651,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_13_power",
+    "est_bytes": 629954,
+    "est_state_bytes": 629772,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_13_power",
+    "newest": null,
+    "oldest": 1793958211.927335,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3626,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.lamp_28_power",
+    "est_bytes": 625613,
+    "est_state_bytes": 625431,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.lamp_28_power",
+    "newest": null,
+    "oldest": 1793958213.2000628,
+    "orphan": true,
+    "recorded": true,
+    "rows": 3601,
+    "rows_24h": 0,
+    "stat_rows": 3,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": null,
+    "area": null,
+    "attr_only": 1499,
+    "defined_in": "gone",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.router_status",
+    "est_bytes": 465491,
+    "est_state_bytes": 465491,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "sensor.router_status",
+    "newest": null,
+    "oldest": 1794644334.7095227,
+    "orphan": true,
+    "recorded": true,
+    "rows": 1500,
+    "rows_24h": 0,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": "7",
+     "conflict": true,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": "power",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": "conflict_dashboard",
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 1,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 7,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.noisy_power",
+    "est_bytes": 304996,
+    "est_state_bytes": 31032,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Noisy Power",
+    "newest": null,
+    "oldest": 1795846620.4907234,
+    "orphan": false,
+    "recorded": true,
+    "rows": 178,
+    "rows_24h": 178,
+    "stat_rows": 4510,
+    "tier": "drop",
+    "top": false,
+    "used": "yes"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.09,
+      "device_class": "data_size",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_freier_speicher",
+    "est_bytes": 297904,
+    "est_state_bytes": 23940,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Freier Speicher",
+    "newest": null,
+    "oldest": 1794597829.0466468,
+    "orphan": false,
+    "recorded": true,
+    "rows": 126,
+    "rows_24h": 25,
+    "stat_rows": 4510,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.02,
+      "attr_share": 0.03,
+      "device_class": "data_size",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 2,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_datenbankgrosse",
+    "est_bytes": 291551,
+    "est_state_bytes": 17587,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Datenbankgr\u00f6\u00dfe",
+    "newest": null,
+    "oldest": 1794597829.0482404,
+    "orphan": false,
+    "recorded": true,
+    "rows": 98,
+    "rows_24h": 13,
+    "stat_rows": 4510,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.04,
+      "device_class": "data_size",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_freigebbar",
+    "est_bytes": 288576,
+    "est_state_bytes": 14612,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Freigebbar",
+    "newest": null,
+    "oldest": 1794597829.049005,
+    "orphan": false,
+    "recorded": true,
+    "rows": 81,
+    "rows_24h": 20,
+    "stat_rows": 4510,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": "data_size",
+      "entity_category": "diagnostic",
+      "state_class": "total_increasing"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_insgesamt_freigegeben",
+    "est_bytes": 282115,
+    "est_state_bytes": 8151,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Insgesamt freigegeben",
+    "newest": null,
+    "oldest": 1794597829.0496435,
+    "orphan": false,
+    "recorded": true,
+    "rows": 46,
+    "rows_24h": 8,
+    "stat_rows": 4510,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.05,
+      "device_class": "data_size",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_lokale_backups",
+    "est_bytes": 280379,
+    "est_state_bytes": 6415,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Lokale Backups",
+    "newest": null,
+    "oldest": 1794597829.0486424,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 4510,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_speicher_belegt",
+    "est_bytes": 280160,
+    "est_state_bytes": 6196,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Speicher belegt",
+    "newest": null,
+    "oldest": 1794597829.0470445,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 4510,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": "data_size",
+      "entity_category": null,
+      "state_class": "measurement"
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_wachstum_pro_tag",
+    "est_bytes": 269988,
+    "est_state_bytes": 6229,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Wachstum pro Tag",
+    "newest": null,
+    "oldest": 1794597829.0477154,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 4342,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.old_plug_power",
+    "est_bytes": 72307,
+    "est_state_bytes": 72307,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Old Plug Power",
+    "newest": null,
+    "oldest": 1794171070.2612946,
+    "orphan": false,
+    "recorded": true,
+    "rows": 416,
+    "rows_24h": 6,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 1,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.basement_humidity",
+    "est_bytes": 72134,
+    "est_state_bytes": 72134,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Basement Humidity",
+    "newest": null,
+    "oldest": 1794171070.2612946,
+    "orphan": false,
+    "recorded": true,
+    "rows": 415,
+    "rows_24h": 6,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "yes"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.0,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml_no_id",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.legacy_pool_temperature",
+    "est_bytes": 72112,
+    "est_state_bytes": 72112,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "Legacy Pool Temperature",
+    "newest": null,
+    "oldest": 1794171070.2612946,
+    "orphan": false,
+    "recorded": true,
+    "rows": 415,
+    "rows_24h": 6,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": "enum",
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Backup",
+    "domain": "sensor",
+    "entity_id": "sensor.backup_backup_manager_zustand",
+    "est_bytes": 12757,
+    "est_state_bytes": 12757,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "backup",
+    "name": "Backup Backup-Manager-Zustand",
+    "newest": null,
+    "oldest": 1794597807.3912401,
+    "orphan": false,
+    "recorded": true,
+    "rows": 73,
+    "rows_24h": 6,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.49,
+      "attr_share": 0.02,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 34,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "person",
+    "entity_id": "person.admin",
+    "est_bytes": 12266,
+    "est_state_bytes": 12266,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "person",
+    "name": "Admin",
+    "newest": null,
+    "oldest": 1794597828.8643444,
+    "orphan": false,
+    "recorded": true,
+    "rows": 69,
+    "rows_24h": 6,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.03,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Backup",
+    "domain": "event",
+    "entity_id": "event.backup_automatisches_backup",
+    "est_bytes": 8054,
+    "est_state_bytes": 8054,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "backup",
+    "name": "Backup Automatisches Backup",
+    "newest": null,
+    "oldest": 1794597807.3898704,
+    "orphan": false,
+    "recorded": true,
+    "rows": 45,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.03,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml_no_id",
+    "device": null,
+    "domain": "zone",
+    "entity_id": "zone.home",
+    "est_bytes": 6260,
+    "est_state_bytes": 6260,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "Test Home",
+    "newest": null,
+    "oldest": 1794597778.7003999,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": "duration",
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "sensor",
+    "entity_id": "sensor.storage_manager_tage_bis_voll",
+    "est_bytes": 6192,
+    "est_state_bytes": 6192,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Tage bis voll",
+    "newest": null,
+    "oldest": 1794597829.0473704,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": "timestamp",
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Backup",
+    "domain": "sensor",
+    "entity_id": "sensor.backup_letztes_erfolgreiches_automatisches_backup",
+    "est_bytes": 6186,
+    "est_state_bytes": 6186,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "backup",
+    "name": "Backup Letztes erfolgreiches automatisches Backup",
+    "newest": null,
+    "oldest": 1794597807.4631357,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": "timestamp",
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Backup",
+    "domain": "sensor",
+    "entity_id": "sensor.backup_letztes_versuchtes_automatisches_backup",
+    "est_bytes": 6183,
+    "est_state_bytes": 6183,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "backup",
+    "name": "Backup Letztes versuchtes automatisches Backup",
+    "newest": null,
+    "oldest": 1794597807.4634223,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.02,
+      "device_class": "timestamp",
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Backup",
+    "domain": "sensor",
+    "entity_id": "sensor.backup_nachstes_geplantes_automatisches_backup",
+    "est_bytes": 6183,
+    "est_state_bytes": 6183,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "backup",
+    "name": "Backup N\u00e4chstes geplantes automatisches Backup",
+    "newest": null,
+    "oldest": 1794597807.4627044,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Google \u00dcbersetzer en com",
+    "domain": "tts",
+    "entity_id": "tts.google_ubersetzer_en_com_google_translate_en_com",
+    "est_bytes": 6154,
+    "est_state_bytes": 6154,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "google_translate",
+    "name": "Google \u00dcbersetzer en com Google Translate en com",
+    "newest": null,
+    "oldest": 1794597833.7170744,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": "diagnostic",
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "button",
+    "entity_id": "button.storage_manager_datenbank_analysieren",
+    "est_bytes": 6142,
+    "est_state_bytes": 6142,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Datenbank analysieren",
+    "newest": null,
+    "oldest": 1794597829.0580945,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": "config",
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "button",
+    "entity_id": "button.storage_manager_datenbank_neu_packen",
+    "est_bytes": 6140,
+    "est_state_bytes": 6140,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Datenbank neu packen",
+    "newest": null,
+    "oldest": 1794597829.058346,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": "Storage Manager",
+    "domain": "button",
+    "entity_id": "button.storage_manager_sicher_aufraumen",
+    "est_bytes": 6136,
+    "est_state_bytes": 6136,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "storage_manager",
+    "name": "Storage Manager Sicher aufr\u00e4umen",
+    "newest": null,
+    "oldest": 1794597829.0577412,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml_no_id",
+    "device": null,
+    "domain": "conversation",
+    "entity_id": "conversation.home_assistant",
+    "est_bytes": 6115,
+    "est_state_bytes": 6115,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": null,
+    "name": "Home Assistant",
+    "newest": null,
+    "oldest": 1794597783.6276455,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "ui",
+    "device": null,
+    "domain": "todo",
+    "entity_id": "todo.einkaufsliste",
+    "est_bytes": 6114,
+    "est_state_bytes": 6114,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "shopping_list",
+    "name": "Einkaufsliste",
+    "newest": null,
+    "oldest": 1794597828.9749236,
+    "orphan": false,
+    "recorded": true,
+    "rows": 35,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.01,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "automation",
+    "entity_id": "automation.living_room_too_warm",
+    "est_bytes": 5254,
+    "est_state_bytes": 5254,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "automation",
+    "name": "Living room too warm",
+    "newest": null,
+    "oldest": 1794640003.035297,
+    "orphan": false,
+    "recorded": true,
+    "rows": 30,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.06,
+      "device_class": "battery",
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "sensor",
+    "entity_id": "sensor.garage_door_battery",
+    "est_bytes": 1838,
+    "est_state_bytes": 1838,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "template",
+    "name": "Garage Door Battery",
+    "newest": null,
+    "oldest": 1795380967.518038,
+    "orphan": false,
+    "recorded": true,
+    "rows": 10,
+    "rows_24h": 6,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   },
+   {
+    "advice": {
+     "action": null,
+     "facts": {
+      "attr_only_share": 0.0,
+      "attr_share": 0.03,
+      "device_class": null,
+      "entity_category": null,
+      "state_class": null
+     },
+     "notes": [],
+     "protected": null,
+     "reason": null,
+     "saving": 0,
+     "used": {
+      "automations": 0,
+      "dashboards": 0,
+      "dynamic": 0,
+      "energy": false,
+      "helpers": 0,
+      "min_days": 0,
+      "scripts": 0,
+      "statistics_cards": 0,
+      "yaml": 0
+     }
+    },
+    "area": null,
+    "attr_only": 0,
+    "defined_in": "yaml",
+    "device": null,
+    "domain": "automation",
+    "entity_id": "automation.basement_too_humid",
+    "est_bytes": 1258,
+    "est_state_bytes": 1258,
+    "excluded": false,
+    "excluded_by_yaml": false,
+    "integration": "automation",
+    "name": "Basement too humid",
+    "newest": null,
+    "oldest": 1795380678.6739297,
+    "orphan": false,
+    "recorded": true,
+    "rows": 7,
+    "rows_24h": 3,
+    "stat_rows": 0,
+    "tier": "default",
+    "top": false,
+    "used": "no"
+   }
+  ],
+  "scaled_to_file": false,
+  "size_history": [
+   [
+    1794640097.723481,
+    15487112.0,
+    11694080.0
+   ],
+   [
+    1794640197.181015,
+    16367024.0,
+    14389248.0
+   ],
+   [
+    1794640470.788788,
+    18001576.0,
+    15335424.0
+   ],
+   [
+    1794640692.867355,
+    18660912.0,
+    15073280.0
+   ],
+   [
+    1794640995.13169,
+    18240288.0,
+    16060416.0
+   ],
+   [
+    1794644300.053277,
+    23424960.0,
+    19202048.0
+   ],
+   [
+    1794644307.440816,
+    19296552.0,
+    19202048.0
+   ],
+   [
+    1794644314.357684,
+    18822512.0,
+    19202048.0
+   ],
+   [
+    1794646573.193112,
+    21604104.0,
+    17899520.0
+   ],
+   [
+    1794649415.836045,
+    28809560.0,
+    17899520.0
+   ],
+   [
+    1794649477.298223,
+    27363152.0,
+    23621632.0
+   ],
+   [
+    1794649533.44435,
+    54570840.0,
+    51130368.0
+   ],
+   [
+    1794664226.440694,
+    58830736.0,
+    51130368.0
+   ],
+   [
+    1794664339.198966,
+    59158104.0,
+    51130368.0
+   ],
+   [
+    1794774192.56448,
+    55128144.0,
+    55017472.0
+   ],
+   [
+    1794774243.229161,
+    59842376.0,
+    55017472.0
+   ],
+   [
+    1794809498.011643,
+    61579488.0,
+    61579488.0,
+    1.0
+   ],
+   [
+    1794809583.200963,
+    62488800.0,
+    62488800.0,
+    1.0
+   ],
+   [
+    1794809592.823628,
+    62488800.0,
+    62488800.0,
+    1.0
+   ],
+   [
+    1794809679.445948,
+    62865632.0,
+    62865632.0,
+    1.0
+   ],
+   [
+    1794809689.042199,
+    62865632.0,
+    62865632.0,
+    1.0
+   ],
+   [
+    1794809811.446466,
+    63201288.0,
+    63201288.0,
+    1.0
+   ],
+   [
+    1794809821.035706,
+    64230664.0,
+    64156936.0,
+    1.0
+   ],
+   [
+    1795380683.52915,
+    59387984.0,
+    59387984.0,
+    1.0
+   ],
+   [
+    1795380869.765452,
+    63068000.0,
+    63055712.0,
+    1.0
+   ],
+   [
+    1795844916.777443,
+    65858744.0,
+    65858744.0,
+    1.0
+   ],
+   [
+    1795844984.269017,
+    71870664.0,
+    43071688.0,
+    1.0
+   ],
+   [
+    1795845018.788549,
+    74845184.0,
+    74845184.0,
+    1.0
+   ],
+   [
+    1795845030.303438,
+    74845184.0,
+    74816512.0,
+    1.0
+   ],
+   [
+    1795845066.176763,
+    74927104.0,
+    74927104.0,
+    1.0
+   ],
+   [
+    1795845087.488449,
+    75074560.0,
+    75074560.0,
+    1.0
+   ],
+   [
+    1795845094.333772,
+    75074560.0,
+    74820608.0,
+    1.0
+   ],
+   [
+    1795845112.029171,
+    75136000.0,
+    75136000.0,
+    1.0
+   ],
+   [
+    1795845154.186791,
+    75308032.0,
+    75295744.0,
+    1.0
+   ],
+   [
+    1795846809.966968,
+    74436232.0,
+    74370696.0,
+    1.0
+   ]
+  ],
+  "table_sizes": {
+   "event_data": 69632,
+   "event_types": 8192,
+   "events": 1409024,
+   "migration_changes": 8192,
+   "recorder_runs": 8192,
+   "schema_changes": 4096,
+   "sqlite_schema": 12288,
+   "sqlite_stat1": 4096,
+   "state_attributes": 17915904,
+   "states": 41324544,
+   "states_meta": 8192,
+   "statistics": 1216512,
+   "statistics_meta": 8192,
+   "statistics_runs": 221184,
+   "statistics_short_term": 2609152
+  },
+  "top_count": 34,
+  "total_bytes": 62960198,
+  "yaml_filters": {
+   "exclude": {
+    "domains": [
+     "media_player"
+    ],
+    "entities": [
+     "sensor.wifi_rssi_kitchen"
+    ],
+    "entity_globs": [
+     "sensor.*_rssi*",
+     "sensor.nothing_*"
+    ],
+    "event_types": [
+     "call_service"
+    ]
+   },
+   "purge_keep_days": 10,
+   "uses_include": false
+  }
+ },
+ "entity_detail": {
+  "advice": {
+   "action": "1",
+   "facts": {
+    "attr_only_share": 0.15,
+    "attr_share": 0.91,
+    "device_class": null,
+    "entity_category": null,
+    "state_class": null
+   },
+   "group": "attributes:template",
+   "group_member": false,
+   "notes": [],
+   "protected": null,
+   "reason": "attributes",
+   "saving": 16912513,
+   "used": {
+    "automations": 0,
+    "dashboards": 0,
+    "dynamic": 0,
+    "energy": false,
+    "helpers": 0,
+    "min_days": 0,
+    "scripts": 0,
+    "statistics_cards": 0,
+    "yaml": 0
+   }
+  },
+  "attribute_variants": 13422,
+  "attributes": [
+   {
+    "bytes": 1491,
+    "name": "forecast"
+   },
+   {
+    "bytes": 34,
+    "name": "updated"
+   },
+   {
+    "bytes": 23,
+    "name": "friendly_name"
+   }
+  ],
+  "daily": [
+   2631,
+   703,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   925,
+   0,
+   0,
+   0,
+   0,
+   4882
+  ],
+  "days": 14,
+  "drivers": [
+   {
+    "bytes": 45,
+    "change_rate": 1.0,
+    "driver": true,
+    "name": "updated",
+    "share": 0.028
+   },
+   {
+    "bytes": 1503,
+    "change_rate": 0.0,
+    "driver": false,
+    "name": "forecast",
+    "share": 0.946
+   },
+   {
+    "bytes": 40,
+    "change_rate": 0.0,
+    "driver": false,
+    "name": "friendly_name",
+    "share": 0.025
+   }
+  ],
+  "entity_id": "sensor.weather_forecast_blob",
+  "info": {
+   "attr_len": 15492508,
+   "attr_only": 1439,
+   "est_attr_bytes": 17675448,
+   "est_bytes": 19381018,
+   "est_state_bytes": 19381018,
+   "oldest": 1793862612.549893,
+   "rows": 9822,
+   "rows_24h": 1251,
+   "stat_rows": 0,
+   "state_len": 9828
+  },
+  "keep_days": 10,
+  "sample_attr_only": 377,
+  "sample_rows": 2000,
+  "usage": {
+   "automations": [],
+   "dashboard_cards": [],
+   "dashboards": [],
+   "dynamic": [],
+   "energy": false,
+   "helpers": [],
+   "history_readers": [],
+   "min_days": 0,
+   "scripts": [],
+   "statistics_cards": [],
+   "yaml": []
+  }
+ },
+ "folder_roots": {
+  "roots": [
+   {
+    "config": true,
+    "path": "/config",
+    "scanned_at": 1795852715.2097147,
+    "size": 128243697
+   },
+   {
+    "config": false,
+    "path": "/media",
+    "scanned_at": null,
+    "size": null
+   }
+  ],
+  "scanning": null
+ },
+ "folder_scan": {
+  "children": [
+   {
+    "files": 2,
+    "name": "backups",
+    "path": "/config/backups",
+    "size": 32583680
+   },
+   {
+    "files": 1,
+    "name": "esphome",
+    "path": "/config/esphome",
+    "size": 5000000
+   },
+   {
+    "files": 28,
+    "name": ".storage",
+    "path": "/config/.storage",
+    "size": 4394565
+   },
+   {
+    "files": 4,
+    "name": "blueprints",
+    "path": "/config/blueprints",
+    "size": 6750
+   },
+   {
+    "files": 2,
+    "name": "packages",
+    "path": "/config/packages",
+    "size": 988
+   },
+   {
+    "files": 0,
+    "name": "tts",
+    "path": "/config/tts",
+    "size": 0
+   },
+   {
+    "files": 0,
+    "name": "custom_components",
+    "path": "/config/custom_components",
+    "size": 0
+   },
+   {
+    "files": 0,
+    "name": "deps",
+    "path": "/config/deps",
+    "size": 0
+   }
+  ],
+  "crumbs": [
+   {
+    "name": "hacfg",
+    "path": "/config"
+   }
+  ],
+  "files": 49,
+  "items": 69,
+  "largest": [
+   {
+    "path": "home-assistant_v2.db",
+    "size": 82075648
+   },
+   {
+    "path": "backups/Storage_Manager_2026-11-22_21:54_2026-11-22_21.54_24430206.tar",
+    "size": 22364160
+   },
+   {
+    "path": "backups/Storage_Manager_2026-11-14_09:18_2026-11-14_09.18_25578655.tar",
+    "size": 10219520
+   },
+   {
+    "path": "esphome/.esphome/build/node2/fw.bin",
+    "size": 5000000
+   },
+   {
+    "path": ".storage/storage_manager/undo/1795844975-b900afdd.ndjson.gz",
+    "size": 4202034
+   },
+   {
+    "path": "home-assistant_v2.db-wal",
+    "size": 4136512
+   },
+   {
+    "path": ".storage/storage_manager.data",
+    "size": 65018
+   },
+   {
+    "path": ".storage/storage_manager/undo/1795845093-53aadb44.ndjson.gz",
+    "size": 44426
+   },
+   {
+    "path": "home-assistant_v2.db-shm",
+    "size": 32768
+   },
+   {
+    "path": ".storage/core.entity_registry",
+    "size": 30697
+   },
+   {
+    "path": ".storage/core.restore_state",
+    "size": 12592
+   },
+   {
+    "path": ".storage/storage_manager/undo/1795846808-294b859d.ndjson.gz",
+    "size": 10924
+   }
+  ],
+  "own": 86258691,
+  "partial": false,
+  "path": "/config",
+  "rest": {
+   "count": 0,
+   "size": 0
+  },
+  "root": "/config",
+  "scanned_at": 1795852741.7419407,
+  "size": 128244674,
+  "warnings": 0
+ },
+ "health": {
+  "backups": {
+   "checks": [
+    {
+     "key": "schedule",
+     "status": "warning",
+     "values": {
+      "recurrence": "never"
+     }
+    },
+    {
+     "key": "newest",
+     "status": "ok",
+     "values": {
+      "date": "2026-11-22T21:54:24.430206+01:00",
+      "hours": 131
+     }
+    },
+    {
+     "key": "last_attempt",
+     "status": "unknown",
+     "values": {
+      "attempted": null,
+      "completed": null
+     }
+    },
+    {
+     "key": "offsite",
+     "status": "warning",
+     "values": {}
+    },
+    {
+     "key": "size",
+     "status": "unknown",
+     "values": {}
+    },
+    {
+     "key": "encryption",
+     "status": "unknown",
+     "values": {
+      "agents": []
+     }
+    },
+    {
+     "key": "database_included",
+     "status": "info",
+     "values": {
+      "scheduled": false
+     }
+    },
+    {
+     "key": "space",
+     "status": "ok",
+     "values": {
+      "free": 29855932416,
+      "need": 33546240
+     }
+    },
+    {
+     "key": "agents",
+     "status": "ok",
+     "values": {
+      "agents": []
+     }
+    },
+    {
+     "key": "emergency_kit",
+     "status": "info",
+     "values": {
+      "date": null
+     }
+    },
+    {
+     "key": "restore_test",
+     "status": "info",
+     "values": {
+      "date": null
+     }
+    }
+   ],
+   "status": "warning"
+  },
+  "checked_at": "2026-11-28T07:58:34.672080+00:00",
+  "database": {
+   "checks": [
+    {
+     "key": "wal",
+     "status": "ok",
+     "values": {
+      "bytes": 4136512,
+      "share": 0.05
+     }
+    },
+    {
+     "key": "growth",
+     "status": "ok",
+     "values": {
+      "before_per_day": null,
+      "bytes": 0,
+      "per_day": 0
+     }
+    },
+    {
+     "key": "integrity",
+     "status": "ok",
+     "values": {
+      "at": 1795844975.738606,
+      "details": [],
+      "result": "ok"
+     }
+    },
+    {
+     "key": "statistics",
+     "status": "warning",
+     "values": {
+      "count": 44,
+      "types": {
+       "entity_no_longer_recorded": 1,
+       "no_state": 40,
+       "state_class_removed": 2,
+       "units_changed": 1
+      }
+     }
+    },
+    {
+     "key": "writers",
+     "status": "ok",
+     "values": {}
+    }
+   ],
+   "status": "warning"
+  }
+ },
+ "kind_rules": {
+  "kind_auto": {},
+  "kind_rules": {}
+ },
+ "overview": {
+  "data": {
+   "addon_names": {},
+   "backups": {
+    "available": true,
+    "count": 2,
+    "deletable_bytes": 0,
+    "deletable_count": 0,
+    "local_count": 2,
+    "local_total": 32583680,
+    "only_local_count": 0,
+    "rotation_enabled": false
+   },
+   "breakdown": null,
+   "busy": null,
+   "database": {
+    "analysis_at": 1795846809.9659796,
+    "analysis_progress": null,
+    "analysis_running": false,
+    "dialect": "sqlite",
+    "freelist_bytes": 0,
+    "integrity": {
+     "at": 1795844975.738606,
+     "details": [],
+     "result": "ok"
+    },
+    "keep_days": 10,
+    "obsolete": {
+     "bytes": 40186560,
+     "events": 9830,
+     "keep_days": 10,
+     "states": 224561
+    },
+    "orphan_entities": 42,
+    "orphan_entity_bytes": 27844539,
+    "orphan_statistics": 40,
+    "repack": {
+     "can_convert": false,
+     "disk_free": 29855932416,
+     "file_bytes": 82100224,
+     "free_pages_bytes": 0,
+     "incremental_ready": true,
+     "live_bytes": 82100224,
+     "method": "incremental",
+     "missing_bytes": 0,
+     "need": 67108864,
+     "options": {
+      "incremental": {
+       "need": 67108864,
+       "possible": true
+      },
+      "memory": {
+       "need": 157419110,
+       "need_ram": 123150336,
+       "possible": true
+      },
+      "vacuum": {
+       "need": 247729356,
+       "possible": true
+      }
+     },
+     "ram_free": 7725309952,
+     "reduce_bytes": 0
+    },
+    "size": 86244928
+   },
+   "dead_entities": {
+    "bytes": 0,
+    "count": 0
+   },
+   "disk": {
+    "free": 29855932416,
+    "percent_used": 89.0,
+    "total": 270553174016,
+    "used": 240697241600
+   },
+   "files": {
+    "config_dir_bytes": 123952794,
+    "hogs": [
+     {
+      "key": "esphome_build",
+      "paths": [
+       "esphome/.esphome/build"
+      ],
+      "safety": "safe",
+      "size_bytes": 5000000
+     },
+     {
+      "key": "undo_files",
+      "paths": [
+       ".storage/storage_manager/undo/1795845093-53aadb44.ndjson.gz",
+       ".storage/storage_manager/undo/1795844975-b900afdd.ndjson.gz",
+       ".storage/storage_manager/undo/1795845151-0865100d.ndjson.gz",
+       ".storage/storage_manager/undo/1795845027-ef6bb218.ndjson.gz",
+       ".storage/storage_manager/undo/1795846808-294b859d.ndjson.gz"
+      ],
+      "safety": "review",
+      "size_bytes": 4262226
+     },
+     {
+      "key": "rotated_logs",
+      "paths": [
+       "home-assistant.log.1",
+       "home-assistant.log.fault"
+      ],
+      "safety": "review",
+      "size_bytes": 3367
+     }
+    ],
+    "large_files": [],
+    "reclaimable_safe": 5000000
+   },
+   "forecast": {
+    "days_until_full": 2169.7,
+    "growth_per_day": 13762383
+   },
+   "freed_total": 37693688,
+   "heavy_writers": [],
+   "is_hassio": false,
+   "logging": {
+    "debug": [
+     "storage_manager"
+    ],
+    "log_bytes": 3153
+   },
+   "reclaimable": {
+    "backups": 0,
+    "files": 5000000,
+    "orphans": 27844539,
+    "repack": 0,
+    "total": 32844539
+   },
+   "recorder": {
+    "core_entity_options": "read_only",
+    "effective_settings": {
+     "auto_purge": true,
+     "auto_repack": false,
+     "commit_interval": 1,
+     "purge_keep_days": 10
+    },
+    "excluded_count": 1,
+    "exclusion_orphans": {
+     "domains": [
+      "media_player"
+     ],
+     "entities": [],
+     "entity_globs": [
+      "sensor.nothing_*"
+     ]
+    },
+    "filters": {
+     "domains": [
+      "media_player"
+     ],
+     "entity_globs": [
+      "sensor.*_rssi*",
+      "sensor.nothing_*"
+     ],
+     "event_types": [
+      "call_service"
+     ]
+    },
+    "keep_days": 10,
+    "locked_settings": {
+     "commit_interval": 1,
+     "purge_keep_days": 10
+    },
+    "packages": {
+     "available": true,
+     "directory": "/config/packages",
+     "file": "/config/packages/storage_manager.yaml",
+     "mode": "include_dir_named"
+    },
+    "pending_restart": [],
+    "restart_required": false,
+    "retention_count": 1,
+    "settings": {
+     "auto_repack": false
+    },
+    "tiers": {
+     "1": 1,
+     "3": 3,
+     "7": 7,
+     "drop": 0
+    },
+    "unwritten": [],
+    "yaml_filters": {
+     "exclude": {
+      "domains": [
+       "media_player"
+      ],
+      "entities": [
+       "sensor.wifi_rssi_kitchen"
+      ],
+      "entity_globs": [
+       "sensor.*_rssi*",
+       "sensor.nothing_*"
+      ],
+      "event_types": [
+       "call_service"
+      ]
+     },
+     "purge_keep_days": 10,
+     "uses_include": false
+    }
+   },
+   "retention_potential": {
+    "bytes": 22170161,
+    "count": 5
+   },
+   "system_log": null,
+   "unused_statistics": {
+    "bytes": 478496,
+    "count": 2
+   },
+   "updated_at": "2026-11-28T07:58:35.206980+00:00"
+  },
+  "gui_recorder": false,
+  "gui_recorder_imported": false,
+  "history": [
+   {
+    "action": "cleanup",
+    "details": {
+     "deleted": {
+      "statistics_age": {
+       "energy_months": null,
+       "rows": 1123,
+       "statistics": 1,
+       "stats_months": 12
+      }
+     },
+     "errors": [],
+     "results": {
+      "statistics_age": 67091
+     },
+     "targets": [
+      "statistics_age"
+     ],
+     "undo": {
+      "bytes": 10924,
+      "id": "1795846808-294b859d",
+      "rows": {
+       "events": 0,
+       "states": 0,
+       "statistics": 1123
+      }
+     }
+    },
+    "freed_bytes": 67091,
+    "time": "2026-11-28T06:20:08.555904+00:00"
+   },
+   {
+    "action": "statistics_retention",
+    "details": {
+     "energy_months": null,
+     "stats_months": 12
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-28T06:20:08.452275+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "deleted": {
+      "dead": [
+       "sensor.attic_fan_power"
+      ]
+     },
+     "errors": [],
+     "results": {
+      "dead": 72075
+     },
+     "targets": [
+      "dead"
+     ],
+     "undo": {
+      "bytes": 2282,
+      "id": "1795845151-0865100d",
+      "rows": {
+       "events": 0,
+       "states": 406,
+       "statistics": 0
+      }
+     }
+    },
+    "freed_bytes": 72075,
+    "time": "2026-11-28T05:52:33.318243+00:00"
+   },
+   {
+    "action": "undo",
+    "details": {
+     "added": {
+      "events": 400,
+      "states": 0,
+      "statistics": 3000
+     },
+     "skipped": {
+      "events": 0,
+      "states": 0,
+      "statistics": 0
+     },
+     "undo_id": "1795845093-53aadb44"
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-28T05:51:51.165842+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "deleted": {
+      "event_rows": 800,
+      "event_types": [
+       "tuya_status_update"
+      ],
+      "unused_statistics": [
+       "demo:old_tariff"
+      ]
+     },
+     "errors": [],
+     "results": {
+      "events": 51324,
+      "unused_statistics": 179229
+     },
+     "targets": [
+      "events",
+      "unused_statistics"
+     ],
+     "undo": {
+      "bytes": 44426,
+      "id": "1795845093-53aadb44",
+      "rows": {
+       "events": 400,
+       "states": 0,
+       "statistics": 3000
+      }
+     },
+     "undone": "2026-11-28T05:51:51.165819+00:00"
+    },
+    "freed_bytes": 230553,
+    "time": "2026-11-28T05:51:33.501058+00:00"
+   },
+   {
+    "action": "undo",
+    "details": {
+     "added": {
+      "events": 0,
+      "states": 0,
+      "statistics": 0
+     },
+     "skipped": {
+      "events": 0,
+      "states": 412,
+      "statistics": 0
+     },
+     "undo_id": "1795845027-ef6bb218"
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-28T05:51:26.619191+00:00"
+   },
+   {
+    "action": "undo",
+    "details": {
+     "added": {
+      "events": 0,
+      "states": 412,
+      "statistics": 0
+     },
+     "skipped": {
+      "events": 0,
+      "states": 0,
+      "statistics": 0
+     },
+     "undo_id": "1795845027-ef6bb218"
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-28T05:51:05.286290+00:00"
+   },
+   {
+    "action": "enable_dead",
+    "details": {
+     "entities": [
+      "sensor.old_plug_power"
+     ]
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-28T05:51:05.279994+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "deleted": {
+      "dead": [
+       "sensor.old_plug_power"
+      ]
+     },
+     "errors": [],
+     "results": {
+      "dead": 73356
+     },
+     "targets": [
+      "dead"
+     ],
+     "undo": {
+      "bytes": 2560,
+      "id": "1795845027-ef6bb218",
+      "rows": {
+       "events": 0,
+       "states": 412,
+       "statistics": 0
+      }
+     },
+     "undone": "2026-11-28T05:51:26.619151+00:00"
+    },
+    "freed_bytes": 73356,
+    "time": "2026-11-28T05:50:29.469879+00:00"
+   },
+   {
+    "action": "undo",
+    "details": {
+     "added": {
+      "events": 0,
+      "states": 159141,
+      "statistics": 0
+     },
+     "skipped": {
+      "events": 0,
+      "states": 0,
+      "statistics": 0
+     },
+     "undo_id": "1795844975-b900afdd"
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-28T05:50:17.690585+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "deleted": {
+      "entities": [
+       "sensor.lamp_0_power",
+       "sensor.lamp_10_power",
+       "sensor.lamp_11_power",
+       "sensor.lamp_12_power",
+       "sensor.lamp_13_power",
+       "sensor.lamp_14_power",
+       "sensor.lamp_15_power",
+       "sensor.lamp_16_power",
+       "sensor.lamp_17_power",
+       "sensor.lamp_18_power",
+       "sensor.lamp_19_power",
+       "sensor.lamp_1_power",
+       "sensor.lamp_20_power",
+       "sensor.lamp_21_power",
+       "sensor.lamp_22_power",
+       "sensor.lamp_23_power",
+       "sensor.lamp_24_power",
+       "sensor.lamp_25_power",
+       "sensor.lamp_26_power",
+       "sensor.lamp_27_power",
+       "sensor.lamp_28_power",
+       "sensor.lamp_29_power",
+       "sensor.lamp_2_power",
+       "sensor.lamp_30_power",
+       "sensor.lamp_31_power",
+       "sensor.lamp_32_power",
+       "sensor.lamp_33_power",
+       "sensor.lamp_34_power",
+       "sensor.lamp_35_power",
+       "sensor.lamp_36_power",
+       "sensor.lamp_37_power",
+       "sensor.lamp_38_power",
+       "sensor.lamp_39_power",
+       "sensor.lamp_3_power",
+       "sensor.lamp_4_power",
+       "sensor.lamp_5_power",
+       "sensor.lamp_6_power",
+       "sensor.lamp_7_power",
+       "sensor.lamp_8_power",
+       "sensor.lamp_9_power",
+       "sensor.router_status",
+       "sensor.time"
+      ]
+     },
+     "errors": [],
+     "results": {
+      "orphans": 28634897
+     },
+     "targets": [
+      "orphans"
+     ],
+     "undo": {
+      "bytes": 4202034,
+      "id": "1795844975-b900afdd",
+      "rows": {
+       "events": 0,
+       "states": 159141,
+       "statistics": 0
+      }
+     },
+     "undone": "2026-11-28T05:50:17.690559+00:00"
+    },
+    "freed_bytes": 28634897,
+    "time": "2026-11-28T05:49:43.550569+00:00"
+   },
+   {
+    "action": "enable_dead",
+    "details": {
+     "entities": [
+      "sensor.old_plug_power",
+      "sensor.garage_door_battery"
+     ]
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-22T20:54:56.674900+00:00"
+   },
+   {
+    "action": "disable_dead",
+    "details": {
+     "entities": [
+      "sensor.old_plug_power"
+     ]
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-22T20:54:39.860353+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "backup": "Storage Manager 2026-11-22 21:54",
+     "deleted": {
+      "dead": [
+       "sensor.garage_door_battery"
+      ]
+     },
+     "errors": [],
+     "results": {
+      "dead": 71518
+     },
+     "targets": [
+      "dead"
+     ]
+    },
+    "freed_bytes": 71518,
+    "time": "2026-11-22T20:54:28.986562+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "errors": [],
+     "results": {
+      "repack": 2468224
+     },
+     "targets": [
+      "repack"
+     ]
+    },
+    "freed_bytes": 2469888,
+    "time": "2026-11-14T08:18:43.237850+00:00"
+   },
+   {
+    "action": "purge_entities",
+    "details": {
+     "backup": "Storage Manager 2026-11-14 09:18",
+     "deleted": {
+      "0": [
+       "sensor.noisy_power"
+      ]
+     },
+     "entities": 1
+    },
+    "freed_bytes": 266275,
+    "time": "2026-11-14T08:18:33.705629+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "errors": [],
+     "results": {
+      "repack": 2768912
+     },
+     "targets": [
+      "repack"
+     ]
+    },
+    "freed_bytes": 2772992,
+    "time": "2026-11-14T08:18:33.397424+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "backup": "Storage Manager 2026-11-14 09:18",
+     "deleted": {
+      "older_than_days": 10
+     },
+     "errors": [],
+     "results": {
+      "purge": 0
+     },
+     "targets": [
+      "purge"
+     ]
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-14T08:18:26.827627+00:00"
+   },
+   {
+    "action": "recorder_changes",
+    "details": {
+     "settings": true
+    },
+    "freed_bytes": 0,
+    "time": "2026-11-14T07:18:37.723756+00:00"
+   },
+   {
+    "action": "cleanup",
+    "details": {
+     "errors": [],
+     "results": {
+      "files": 3000000
+     },
+     "targets": [
+      "files"
+     ]
+    },
+    "freed_bytes": 3010560,
+    "time": "2026-11-13T19:26:14.457005+00:00"
+   }
+  ],
+  "options": {
+   "analysis_hour": 3,
+   "backup_before_delete": true,
+   "backup_rotation": false,
+   "forecast_warning_days": 14,
+   "keep_daily": 7,
+   "keep_monthly": 6,
+   "keep_weekly": 4,
+   "low_space_percent": 15,
+   "nightly_run": true,
+   "require_offsite": true,
+   "targeted_backup": true,
+   "update_interval": 15
+  },
+  "recommendations": [
+   {
+    "action": "clean",
+    "bytes": 27844539,
+    "count": 42,
+    "id": "orphans",
+    "targets": [
+     "orphans"
+    ]
+   },
+   {
+    "action": "navigate",
+    "bytes": 22170161,
+    "count": 5,
+    "id": "retention",
+    "view": "database"
+   },
+   {
+    "action": "clean",
+    "bytes": 5000000,
+    "id": "files",
+    "targets": [
+     "files"
+    ]
+   },
+   {
+    "action": "clean",
+    "bytes": 0,
+    "count": 40,
+    "id": "statistics",
+    "targets": [
+     "statistics"
+    ]
+   },
+   {
+    "action": "navigate",
+    "bytes": 0,
+    "count": 1,
+    "id": "debug_logging",
+    "sources": [
+     "storage_manager"
+    ],
+    "url": "/config/logs"
+   }
+  ],
+  "undo_available": [
+   "1795844975-b900afdd",
+   "1795845027-ef6bb218",
+   "1795845093-53aadb44",
+   "1795845151-0865100d",
+   "1795846808-294b859d"
+  ]
+ },
+ "preview": {
+  "files": {
+   "bytes": 5000000,
+   "items": [
+    {
+     "bytes": 5000000,
+     "name": "esphome_build",
+     "paths": [
+      "esphome/.esphome/build"
+     ]
+    }
+   ]
+  },
+  "orphans": {
+   "bytes": 27844539,
+   "items": [
+    "sensor.lamp_0_power",
+    "sensor.lamp_10_power",
+    "sensor.lamp_11_power",
+    "sensor.lamp_12_power",
+    "sensor.lamp_13_power",
+    "sensor.lamp_14_power",
+    "sensor.lamp_15_power",
+    "sensor.lamp_16_power",
+    "sensor.lamp_17_power",
+    "sensor.lamp_18_power",
+    "sensor.lamp_19_power",
+    "sensor.lamp_1_power",
+    "sensor.lamp_20_power",
+    "sensor.lamp_21_power",
+    "sensor.lamp_22_power",
+    "sensor.lamp_23_power",
+    "sensor.lamp_24_power",
+    "sensor.lamp_25_power",
+    "sensor.lamp_26_power",
+    "sensor.lamp_27_power",
+    "sensor.lamp_28_power",
+    "sensor.lamp_29_power",
+    "sensor.lamp_2_power",
+    "sensor.lamp_30_power",
+    "sensor.lamp_31_power",
+    "sensor.lamp_32_power",
+    "sensor.lamp_33_power",
+    "sensor.lamp_34_power",
+    "sensor.lamp_35_power",
+    "sensor.lamp_36_power",
+    "sensor.lamp_37_power",
+    "sensor.lamp_38_power",
+    "sensor.lamp_39_power",
+    "sensor.lamp_3_power",
+    "sensor.lamp_4_power",
+    "sensor.lamp_5_power",
+    "sensor.lamp_6_power",
+    "sensor.lamp_7_power",
+    "sensor.lamp_8_power",
+    "sensor.lamp_9_power",
+    "sensor.router_status",
+    "sensor.time"
+   ]
+  },
+  "safety": {
+   "backup": {
+    "action": "undo",
+    "fallback": true
+   },
+   "integrity": "cached",
+   "space": {
+    "backup": 0,
+    "backup_source": null,
+    "free": 29855817728,
+    "need": 536870912,
+    "ok": true,
+    "undo": 81034773,
+    "work": 536870912
+   }
+  },
+  "statistics": {
+   "bytes": 7280,
+   "items": [
+    "sensor.lamp_0_power",
+    "sensor.lamp_10_power",
+    "sensor.lamp_11_power",
+    "sensor.lamp_12_power",
+    "sensor.lamp_13_power",
+    "sensor.lamp_14_power",
+    "sensor.lamp_15_power",
+    "sensor.lamp_16_power",
+    "sensor.lamp_17_power",
+    "sensor.lamp_18_power",
+    "sensor.lamp_19_power",
+    "sensor.lamp_1_power",
+    "sensor.lamp_20_power",
+    "sensor.lamp_21_power",
+    "sensor.lamp_22_power",
+    "sensor.lamp_23_power",
+    "sensor.lamp_24_power",
+    "sensor.lamp_25_power",
+    "sensor.lamp_26_power",
+    "sensor.lamp_27_power",
+    "sensor.lamp_28_power",
+    "sensor.lamp_29_power",
+    "sensor.lamp_2_power",
+    "sensor.lamp_30_power",
+    "sensor.lamp_31_power",
+    "sensor.lamp_32_power",
+    "sensor.lamp_33_power",
+    "sensor.lamp_34_power",
+    "sensor.lamp_35_power",
+    "sensor.lamp_36_power",
+    "sensor.lamp_37_power",
+    "sensor.lamp_38_power",
+    "sensor.lamp_39_power",
+    "sensor.lamp_3_power",
+    "sensor.lamp_4_power",
+    "sensor.lamp_5_power",
+    "sensor.lamp_6_power",
+    "sensor.lamp_7_power",
+    "sensor.lamp_8_power",
+    "sensor.lamp_9_power"
+   ]
+  },
+  "total": 32851819
+ },
+ "raw_rows": {
+  "kind": "states",
+  "next": 1795852737.4400437,
+  "rows": [
+   {
+    "attributes": "{\"forecast\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399],\"updated\":\"2026-11-28T08:59:01.439313+01:00\",\"friendly_name\":\"Weather Forecast Blob\"}",
+    "changed": null,
+    "state": "1",
+    "ts": 1795852741.439429
+   },
+   {
+    "attributes": "{\"forecast\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399],\"updated\":\"2026-11-28T08:59:00.439012+01:00\",\"friendly_name\":\"Weather Forecast Blob\"}",
+    "changed": null,
+    "state": "3",
+    "ts": 1795852740.4391048
+   },
+   {
+    "attributes": "{\"forecast\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399],\"updated\":\"2026-11-28T08:58:59.438980+01:00\",\"friendly_name\":\"Weather Forecast Blob\"}",
+    "changed": null,
+    "state": "4",
+    "ts": 1795852739.439074
+   },
+   {
+    "attributes": "{\"forecast\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399],\"updated\":\"2026-11-28T08:58:58.439532+01:00\",\"friendly_name\":\"Weather Forecast Blob\"}",
+    "changed": null,
+    "state": "3",
+    "ts": 1795852738.4396815
+   },
+   {
+    "attributes": "{\"forecast\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399],\"updated\":\"2026-11-28T08:58:57.439908+01:00\",\"friendly_name\":\"Weather Forecast Blob\"}",
+    "changed": null,
+    "state": "2",
+    "ts": 1795852737.4400437
+   }
+  ]
+ },
+ "retention_whatif": {
+  "results": [
+   {
+    "bytes": -46856706,
+    "days": 3,
+    "rows": -205617
+   },
+   {
+    "bytes": -32831965,
+    "days": 7,
+    "rows": -176779
+   },
+   {
+    "bytes": 14303789,
+    "days": 14,
+    "rows": 30436
+   },
+   {
+    "bytes": 71519020,
+    "days": 30,
+    "rows": 152180
+   }
+  ]
+ },
+ "statistics_age_plan": {
+  "bytes": 60,
+  "groups": {
+   "energy": {
+    "bytes": 0,
+    "months": null,
+    "rows": 0,
+    "statistics": 0
+   },
+   "other": {
+    "bytes": 60,
+    "cutoff": 1764295141.7310388,
+    "months": 12,
+    "oldest": 1764291600.0,
+    "rows": 1,
+    "statistics": 1
+   }
+  },
+  "rows": 1
+ },
+ "statistics_retention": {
+  "active": true,
+  "applied": [
+   12,
+   null
+  ],
+  "energy_months": null,
+  "options": [
+   6,
+   12,
+   18,
+   24,
+   36,
+   48,
+   60,
+   84
+  ],
+  "stats_months": 12
+ },
+ "undo_preview": {
+  "bytes": 10924,
+  "created": 1795846808.471426,
+  "enable": [],
+  "free": 29855817728,
+  "include": [],
+  "missing": [],
+  "need": 67218104,
+  "retention": {},
+  "rows": {
+   "events": 0,
+   "states": 0,
+   "statistics": 1123
+  },
+  "schema": 53,
+  "schema_changed": false,
+  "schema_ok": true,
+  "spec": {
+   "entities": [],
+   "event_types": [],
+   "old_statistics": [
+    "demo:old_tariff"
+   ],
+   "statistics": []
+  },
+  "statistics_limits": true,
+  "statistics_on": [],
+  "undone": null
+ },
+ "unused_statistics": {
+  "bytes": 478496,
+  "items": [
+   {
+    "bytes": 364476,
+    "kind": "excluded",
+    "last": 1793941200.0,
+    "name": "Wifi RSSI Kitchen",
+    "rows": 6000,
+    "statistic_id": "sensor.wifi_rssi_kitchen"
+   },
+   {
+    "bytes": 114020,
+    "kind": "stale_import",
+    "last": 1771045200.0,
+    "name": "demo:old_tariff",
+    "rows": 1877,
+    "source": "demo",
+    "statistic_id": "demo:old_tariff"
+   }
+  ],
+  "off": [],
+  "packages": true
+ },
+ "writers": {
+  "complete_from": 1794988741.7300355,
+  "end": 1795852741.72682,
+  "events": [
+   {
+    "bytes": 159700,
+    "event_type": "service_registered",
+    "rows": 1317
+   },
+   {
+    "bytes": 71301,
+    "event_type": "component_loaded",
+    "rows": 588
+   },
+   {
+    "bytes": 4365,
+    "event_type": "panels_updated",
+    "rows": 36
+   },
+   {
+    "bytes": 2667,
+    "event_type": "repairs_issue_registry_updated",
+    "rows": 22
+   },
+   {
+    "bytes": 2546,
+    "event_type": "recorder_5min_statistics_generated",
+    "rows": 21
+   },
+   {
+    "bytes": 1818,
+    "event_type": "entity_registry_updated",
+    "rows": 15
+   },
+   {
+    "bytes": 1455,
+    "event_type": "core_config_updated",
+    "rows": 12
+   },
+   {
+    "bytes": 727,
+    "event_type": "homeassistant_start",
+    "rows": 6
+   },
+   {
+    "bytes": 727,
+    "event_type": "homeassistant_started",
+    "rows": 6
+   },
+   {
+    "bytes": 606,
+    "event_type": "device_registry_updated",
+    "rows": 5
+   },
+   {
+    "bytes": 242,
+    "event_type": "recorder_hourly_statistics_generated",
+    "rows": 2
+   },
+   {
+    "bytes": 121,
+    "event_type": "homeassistant_stop",
+    "rows": 1
+   }
+  ],
+  "start": 1795766341.726819,
+  "states": [
+   {
+    "bytes": 847794,
+    "entity_id": "sensor.plug_uptime",
+    "name": "Plug Uptime",
+    "rows": 4882
+   },
+   {
+    "bytes": 9633285,
+    "entity_id": "sensor.weather_forecast_blob",
+    "name": "Weather Forecast Blob",
+    "rows": 4882
+   },
+   {
+    "bytes": 847316,
+    "entity_id": "sensor.grid_energy",
+    "name": "Grid Energy",
+    "rows": 4879
+   },
+   {
+    "bytes": 855810,
+    "entity_id": "sensor.lux_mittel",
+    "name": "Lux Mittel",
+    "rows": 4874
+   },
+   {
+    "bytes": 845865,
+    "entity_id": "sensor.hallway_lux",
+    "name": "Hallway Lux",
+    "rows": 4871
+   },
+   {
+    "bytes": 817943,
+    "entity_id": "sensor.living_room_temperature",
+    "name": "Living Room Temperature",
+    "rows": 4710
+   },
+   {
+    "bytes": 195780,
+    "entity_id": "sensor.noisy_power",
+    "name": "Noisy Power",
+    "rows": 1123
+   },
+   {
+    "bytes": 7600,
+    "entity_id": "sensor.storage_manager_freier_speicher",
+    "name": "Storage Manager Freier Speicher",
+    "rows": 40
+   },
+   {
+    "bytes": 5024,
+    "entity_id": "sensor.storage_manager_datenbankgrosse",
+    "name": "Storage Manager Datenbankgr\u00f6\u00dfe",
+    "rows": 28
+   },
+   {
+    "bytes": 4329,
+    "entity_id": "sensor.storage_manager_freigebbar",
+    "name": "Storage Manager Freigebbar",
+    "rows": 24
+   },
+   {
+    "bytes": 2133,
+    "entity_id": "person.admin",
+    "name": "Admin",
+    "rows": 12
+   },
+   {
+    "bytes": 2097,
+    "entity_id": "sensor.backup_backup_manager_zustand",
+    "name": "Backup Backup-Manager-Zustand",
+    "rows": 12
+   },
+   {
+    "bytes": 2085,
+    "entity_id": "sensor.basement_humidity",
+    "name": "Basement Humidity",
+    "rows": 12
+   },
+   {
+    "bytes": 2205,
+    "entity_id": "sensor.garage_door_battery",
+    "name": "Garage Door Battery",
+    "rows": 12
+   },
+   {
+    "bytes": 2085,
+    "entity_id": "sensor.legacy_pool_temperature",
+    "name": "Legacy Pool Temperature",
+    "rows": 12
+   },
+   {
+    "bytes": 2085,
+    "entity_id": "sensor.old_plug_power",
+    "name": "Old Plug Power",
+    "rows": 12
+   },
+   {
+    "bytes": 1949,
+    "entity_id": "sensor.storage_manager_insgesamt_freigegeben",
+    "name": "Storage Manager Insgesamt freigegeben",
+    "rows": 11
+   },
+   {
+    "bytes": 1239,
+    "entity_id": "sensor.storage_manager_speicher_belegt",
+    "name": "Storage Manager Speicher belegt",
+    "rows": 7
+   },
+   {
+    "bytes": 1078,
+    "entity_id": "automation.basement_too_humid",
+    "name": "Basement too humid",
+    "rows": 6
+   },
+   {
+    "bytes": 1050,
+    "entity_id": "automation.living_room_too_warm",
+    "name": "Living room too warm",
+    "rows": 6
+   },
+   {
+    "bytes": 1052,
+    "entity_id": "button.storage_manager_datenbank_analysieren",
+    "name": "Storage Manager Datenbank analysieren",
+    "rows": 6
+   },
+   {
+    "bytes": 1052,
+    "entity_id": "button.storage_manager_datenbank_neu_packen",
+    "name": "Storage Manager Datenbank neu packen",
+    "rows": 6
+   },
+   {
+    "bytes": 1051,
+    "entity_id": "button.storage_manager_sicher_aufraumen",
+    "name": "Storage Manager Sicher aufr\u00e4umen",
+    "rows": 6
+   },
+   {
+    "bytes": 1048,
+    "entity_id": "conversation.home_assistant",
+    "name": "Home Assistant",
+    "rows": 6
+   },
+   {
+    "bytes": 1073,
+    "entity_id": "event.backup_automatisches_backup",
+    "name": "Backup Automatisches Backup",
+    "rows": 6
+   },
+   {
+    "bytes": 1060,
+    "entity_id": "sensor.backup_letztes_erfolgreiches_automatisches_backup",
+    "name": "Backup Letztes erfolgreiches automatisches Backup",
+    "rows": 6
+   },
+   {
+    "bytes": 1059,
+    "entity_id": "sensor.backup_letztes_versuchtes_automatisches_backup",
+    "name": "Backup Letztes versuchtes automatisches Backup",
+    "rows": 6
+   },
+   {
+    "bytes": 1059,
+    "entity_id": "sensor.backup_nachstes_geplantes_automatisches_backup",
+    "name": "Backup N\u00e4chstes geplantes automatisches Backup",
+    "rows": 6
+   },
+   {
+    "bytes": 1099,
+    "entity_id": "sensor.storage_manager_lokale_backups",
+    "name": "Storage Manager Lokale Backups",
+    "rows": 6
+   },
+   {
+    "bytes": 1061,
+    "entity_id": "sensor.storage_manager_tage_bis_voll",
+    "name": "Storage Manager Tage bis voll",
+    "rows": 6
+   }
+  ]
+ }
+}

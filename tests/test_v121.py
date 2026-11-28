@@ -196,7 +196,7 @@ async def test_fallback_backup_checks_space(hass: HomeAssistant) -> None:
     hass.states.async_remove("sensor.gone")
     await coordinator.async_run_analysis()
     with (
-        patch("custom_components.storage_manager.coordinator.UNDO_SPACE_MARGIN", 1 << 60),
+        patch("custom_components.storage_manager.undo_service.UNDO_SPACE_MARGIN", 1 << 60),
         patch.object(safety, "async_recent_backup", AsyncMock(return_value=None)),
         patch.object(safety, "async_backup_size", AsyncMock(return_value=(1 << 60, "file"))),
         patch.object(safety, "async_create_backup", AsyncMock()) as create,

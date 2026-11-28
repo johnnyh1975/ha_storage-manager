@@ -15,5 +15,7 @@ if command -v npm >/dev/null; then
   echo "== panel build"
   (cd frontend && npm ci --silent && npm run build --silent)
   git diff --exit-code -- custom_components/storage_manager/frontend/
+  echo "== panel tests"
+  (cd frontend && npm test --silent)
 fi
 echo "All checks passed."

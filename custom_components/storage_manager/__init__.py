@@ -15,11 +15,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.start import async_at_started
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
 from . import panel, recorder_config, repairs, services, websocket_api
-from .const import CONF_ANALYSIS_HOUR, CONF_NIGHTLY_RUN, DOMAIN, STORAGE_KEY, STORAGE_VERSION
+from .const import CONF_ANALYSIS_HOUR, CONF_NIGHTLY_RUN, DOMAIN
 from .coordinator import StorageCoordinator
 from .store import ManagerStore
 
@@ -106,7 +105,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> 
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        await entry.runtime_data.store.async_save()
+        await entry.runtime_data.store.async_flush()
         panel.async_unregister(hass)
     return unloaded
 
@@ -119,4 +118,5 @@ async def async_remove_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> 
     )
     if info.file is not None:
         await hass.async_add_executor_job(recorder_config.write_package, info, {})
-    await Store(hass, STORAGE_VERSION, STORAGE_KEY).async_remove()
+    # both files: the settings and history, and the analysis
+    await ManagerStore(hass).async_remove()

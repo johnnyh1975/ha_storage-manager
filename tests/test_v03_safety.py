@@ -19,8 +19,9 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 import pytest
 
+from custom_components.storage_manager import cleanup as cleanup_mod
 from custom_components.storage_manager import coordinator as coord_mod
-from custom_components.storage_manager import repack, safety
+from custom_components.storage_manager import recorder_tasks, repack, safety
 from custom_components.storage_manager.const import DOMAIN
 from custom_components.storage_manager.store import ManagerStore
 
@@ -678,9 +679,9 @@ async def test_repack_needs_clean_integrity(hass: HomeAssistant, tmp_path: Path)
         assert run.await_args.kwargs == {
             "method": repack.METHOD_VACUUM,
             "convert": True,
-            "on_progress": coordinator._repack_progress,
+            "on_progress": coordinator.cleanup._repack_progress,
         }
-        coordinator._repack_progress(0.5)
+        coordinator.cleanup._repack_progress(0.5)
         assert coordinator.busy == "repack:50"
 
         with patch.object(coord_mod.repack, "async_repack", run):
@@ -798,10 +799,10 @@ async def test_repack_falls_back_without_recorder_tasks(
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
     db = _make_db(tmp_path / "fb.db")
-    assert repack.tasks_available()
+    assert recorder_tasks.tasks_available()
     with (
         patch.object(coord_mod.database, "sqlite_path", return_value=db),
-        patch.object(coord_mod.repack, "tasks_available", return_value=False),
+        patch.object(cleanup_mod, "tasks_available", return_value=False),
         patch.object(coord_mod.database, "async_repack", AsyncMock()) as ha_repack,
         patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)),
     ):

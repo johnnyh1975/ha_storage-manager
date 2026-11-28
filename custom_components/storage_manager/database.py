@@ -25,6 +25,8 @@ from homeassistant.helpers.recorder import get_instance, session_scope
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from .recorder_tasks import async_run_on_recorder
+
 _LOGGER = logging.getLogger(__name__)
 
 # Fallback row sizes when the engine cannot report table sizes
@@ -719,6 +721,42 @@ async def async_read(hass: HomeAssistant, job: Callable[[Session], Any]) -> Any:
     return await get_instance(hass).async_add_executor_job(_read, hass, job)
 
 
+class _Rows:
+    """A query result read to the end, usable after its session closed."""
+
+    def __init__(self, rows: list[Any]) -> None:
+        self._rows = rows
+
+    def __iter__(self) -> Any:
+        return iter(self._rows)
+
+    def all(self) -> list[Any]:
+        return list(self._rows)
+
+    def mappings(self) -> _Rows:
+        return _Rows([row._mapping for row in self._rows])
+
+
+class ShortSessions:
+    """Runs every query in a read session of its own.
+
+    A long export then holds no read transaction open, so SQLite's
+    write-ahead log can be checkpointed while it runs.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
+
+    def execute(self, *args: Any, **kwargs: Any) -> _Rows:
+        with session_scope(hass=self._hass, read_only=True) as session:
+            return _Rows(list(session.execute(*args, **kwargs)))
+
+
+async def async_read_short(hass: HomeAssistant, job: Callable[[Any], Any]) -> Any:
+    """Like async_read, but every query of the job in a short session of its own."""
+    return await get_instance(hass).async_add_executor_job(job, ShortSessions(hass))
+
+
 def run_write(instance: Any, job: Callable[[Session], Any]) -> Any:
     """Run a writing job with a session (on the recorder thread)."""
     with session_scope(session=instance.get_session()) as session:
@@ -915,7 +953,11 @@ PROTECTED_EVENT_TYPES = frozenset({"state_changed"})
 
 
 def delete_events_chunk(
-    session: Session, event_types: list[str], limit: int, purged_data: set[int] | None = None
+    session: Session,
+    event_types: list[str],
+    limit: int,
+    purged_data: set[int] | None = None,
+    max_id: int | None = None,
 ) -> int:
     """Delete up to ``limit`` events of the given types and the event data only they used.
 
@@ -935,11 +977,16 @@ def delete_events_chunk(
     ]
     if not type_ids:
         return 0
+    # events up to max_id only: newer ones are not in the backup for undo
+    bound = "" if max_id is None else " AND event_id <= :max"
+    params: dict[str, Any] = {"types": type_ids, "n": limit}
+    if max_id is not None:
+        params["max"] = max_id
     rows = session.execute(
         text(
-            "SELECT event_id, data_id FROM events WHERE event_type_id IN :types LIMIT :n"
+            f"SELECT event_id, data_id FROM events WHERE event_type_id IN :types{bound} LIMIT :n"  # noqa: S608
         ).bindparams(bindparam("types", expanding=True)),
-        {"types": type_ids, "n": limit},
+        params,
     ).all()
     ids = [int(event_id) for event_id, _ in rows]
     data_ids = sorted({int(data_id) for _, data_id in rows if data_id is not None})
@@ -987,16 +1034,20 @@ def evict_event_data(instance: Any, data_ids: set[int]) -> None:
 
 
 async def async_delete_events(
-    hass: HomeAssistant, event_types: list[str], *, chunk: int = EVENT_DELETE_CHUNK
+    hass: HomeAssistant,
+    event_types: list[str],
+    *,
+    chunk: int = EVENT_DELETE_CHUNK,
+    max_id: int | None = None,
 ) -> int:
-    """Delete all recorded events of these types in chunks on the recorder thread.
+    """Delete recorded events of these types in chunks on the recorder thread.
 
     The recorder has no purge by event type: excluding a type only stops new
     rows. Each chunk is its own recorder task, so state writes keep flowing
-    between chunks. Returns the number of events deleted.
+    between chunks. With ``max_id`` only events up to that id go: a type that
+    is still recorded keeps writing while the cleanup runs. Returns the number
+    of events deleted.
     """
-    from . import repack  # noqa: PLC0415 - avoid an import cycle
-
     types = sorted(set(event_types) - PROTECTED_EVENT_TYPES)
     if not types:
         return 0
@@ -1007,16 +1058,25 @@ async def async_delete_events(
         def job(instance: Any, out: list[int] = counted) -> None:
             purged: set[int] = set()
             with session_scope(session=instance.get_session()) as session:
-                out.append(delete_events_chunk(session, types, chunk, purged))
+                out.append(delete_events_chunk(session, types, chunk, purged, max_id))
             evict_event_data(instance, purged)
 
-        if not await repack.async_run_on_recorder(hass, job):  # pragma: no cover
+        if not await async_run_on_recorder(hass, job):  # pragma: no cover
             raise HomeAssistantError("Recorder tasks are not available")
         done = counted[0] if counted else 0
         total += done
         if done == 0:
             return total
         await asyncio.sleep(0)
+
+
+async def async_max_event_id(hass: HomeAssistant) -> int:
+    """The newest event id (0 without events): the bound for an event cleanup."""
+
+    def job(session: Session) -> int:
+        return int(session.execute(text("SELECT MAX(event_id) FROM events")).scalar() or 0)
+
+    return int(await async_read(hass, job))
 
 
 STATS_DELETE_CHUNK = 20000
@@ -1076,8 +1136,6 @@ async def async_delete_old_statistics(
     Home Assistant has no purge for long-term statistics; it keeps them
     forever. Each chunk is its own recorder task so writes keep flowing.
     """
-    from . import repack  # noqa: PLC0415 - avoid an import cycle
-
     total = 0
     for metadata_ids, cutoff in groups:
         if not metadata_ids:
@@ -1094,7 +1152,7 @@ async def async_delete_old_statistics(
                 with session_scope(session=instance.get_session()) as session:
                     out.append(delete_statistics_chunk(session, ids, before, chunk))
 
-            if not await repack.async_run_on_recorder(hass, job):  # pragma: no cover
+            if not await async_run_on_recorder(hass, job):  # pragma: no cover
                 raise HomeAssistantError("Recorder tasks are not available")
             done = counted[0] if counted else 0
             total += done

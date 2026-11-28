@@ -89,6 +89,8 @@ class Spec:
     states: dict[str, float | None] = field(default_factory=dict)
     statistics: list[str] = field(default_factory=list)
     event_types: list[str] = field(default_factory=list)
+    # events up to this id (None: all): newer ones are not deleted either
+    events_max_id: int | None = None
     # statistic_id -> long-term rows older than this timestamp (metadata stays)
     old_statistics: dict[str, float] = field(default_factory=dict)
 
@@ -207,6 +209,10 @@ def _ids(session: Session, column: Any, key: Any, values: list[str]) -> dict[str
     return found
 
 
+# larger than any row id: "no bound" in a comparison
+MAX_ID = 2**63 - 1
+
+
 def _paged(session: Session, table: Any, pk: Any, where: Any) -> Iterator[dict[str, Any]]:
     last = -1
     while True:
@@ -268,7 +274,11 @@ def count(session: Session, spec: Spec) -> int:
             session.execute(
                 select(func.count())
                 .select_from(et)
-                .where(et.c.event_type_id.in_(list(types.values())))
+                .where(
+                    et.c.event_type_id.in_(list(types.values())),
+                    et.c.event_id
+                    <= (spec.events_max_id if spec.events_max_id is not None else MAX_ID),
+                )
             ).scalar()
             or 0
         )
@@ -365,7 +375,10 @@ def export(session: Session, path: Path, spec: Spec) -> dict[str, Any]:
         data_ids: set[int] = set()
         for event_type, type_id in sorted(types.items()):
             put(out, {"t": "etype", "id": type_id, "event_type": event_type})
-            for row in _paged(session, ev, ev.c.event_id, ev.c.event_type_id == type_id):
+            where = ev.c.event_type_id == type_id
+            if spec.events_max_id is not None:
+                where = where & (ev.c.event_id <= spec.events_max_id)
+            for row in _paged(session, ev, ev.c.event_id, where):
                 if row.get("data_id") is not None:
                     data_ids.add(int(row["data_id"]))
                 put(
