@@ -907,6 +907,91 @@ async def async_delete_events(
         await asyncio.sleep(0)
 
 
+STATS_DELETE_CHUNK = 20000
+
+
+def _old_statistics(session: Session, cutoff: float) -> list[tuple[str, int, int, float]]:
+    """(statistic_id, metadata_id, rows, oldest start) of long-term rows before cutoff."""
+    rows = session.execute(
+        text(
+            "SELECT m.statistic_id, m.id, COUNT(*), MIN(s.start_ts) FROM statistics s "
+            "JOIN statistics_meta m ON m.id = s.metadata_id "
+            "WHERE s.start_ts < :cutoff GROUP BY m.statistic_id, m.id"
+        ),
+        {"cutoff": cutoff},
+    )
+    return [(str(sid), int(mid), int(n), float(oldest)) for sid, mid, n, oldest in rows]
+
+
+async def async_old_statistics(
+    hass: HomeAssistant, cutoff: float
+) -> list[tuple[str, int, int, float]]:
+    """Long-term statistics with rows older than ``cutoff``, per statistic."""
+    return list(await async_read(hass, lambda s: _old_statistics(s, cutoff)))
+
+
+def delete_statistics_chunk(
+    session: Session, metadata_ids: list[int], cutoff: float, limit: int
+) -> int:
+    """Delete up to ``limit`` long-term rows before ``cutoff`` of these statistics."""
+    ids = [
+        int(row[0])
+        for row in session.execute(
+            text(
+                "SELECT id FROM statistics WHERE metadata_id IN :m AND start_ts < :c LIMIT :n"
+            ).bindparams(bindparam("m", expanding=True)),
+            {"m": metadata_ids, "c": cutoff, "n": limit},
+        )
+    ]
+    if ids:
+        session.execute(
+            text("DELETE FROM statistics WHERE id IN :ids").bindparams(
+                bindparam("ids", expanding=True)
+            ),
+            {"ids": ids},
+        )
+    return len(ids)
+
+
+async def async_delete_old_statistics(
+    hass: HomeAssistant,
+    groups: list[tuple[list[int], float]],
+    *,
+    chunk: int = STATS_DELETE_CHUNK,
+) -> int:
+    """Delete long-term rows older than each group's cutoff, in chunks on the recorder.
+
+    Home Assistant has no purge for long-term statistics; it keeps them
+    forever. Each chunk is its own recorder task so writes keep flowing.
+    """
+    from . import repack  # noqa: PLC0415 - avoid an import cycle
+
+    total = 0
+    for metadata_ids, cutoff in groups:
+        if not metadata_ids:
+            continue
+        while True:
+            counted: list[int] = []
+
+            def job(
+                instance: Any,
+                out: list[int] = counted,
+                ids: list[int] = metadata_ids,
+                before: float = cutoff,
+            ) -> None:
+                with session_scope(session=instance.get_session()) as session:
+                    out.append(delete_statistics_chunk(session, ids, before, chunk))
+
+            if not await repack.async_run_on_recorder(hass, job):  # pragma: no cover
+                raise HomeAssistantError("Recorder tasks are not available")
+            done = counted[0] if counted else 0
+            total += done
+            if done == 0:
+                break
+            await asyncio.sleep(0)
+    return total
+
+
 async def async_clear_statistics(hass: HomeAssistant, statistic_ids: list[str]) -> None:
     """Delete long-term statistics of the given ids."""
     if statistic_ids:

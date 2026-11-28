@@ -237,6 +237,12 @@ export const DatabaseSection = (Base) =>
       </div>`;
     }
 
+    _otherCards(usage) {
+      // dashboards that show the entity without needing its history
+      const shown = new Set([...(usage.dashboards || []).map((d) => d.dashboard), ...(usage.statistics_cards || [])]);
+      return (usage.dashboard_cards || []).filter((title) => !shown.has(title));
+    }
+
     _usageSummary(used) {
       const t = this.t;
       if (!used) return "";
@@ -245,7 +251,7 @@ export const DatabaseSection = (Base) =>
       count("dead_used_automations", (used.automations || []).length);
       count("dead_used_scripts", (used.scripts || []).length);
       count("dead_used_helpers", (used.helpers || []).length);
-      count("dead_used_dashboards", (used.dashboards || []).length + (used.statistics_cards || []).length);
+      count("dead_used_dashboards", new Set([...(used.dashboard_cards || []), ...(used.statistics_cards || []), ...(used.dashboards || []).map((d) => d.dashboard)]).size);
       count("dead_used_yaml", (used.yaml || []).length);
       if (used.energy) parts.push(t("dead_used_energy"));
       return parts.join(", ");
@@ -438,11 +444,55 @@ export const DatabaseSection = (Base) =>
       return html`
         ${this._renderKinds(ent)}
         ${this._renderSettings(ent)}
+        ${this._renderStatsRetention()}
         <div class="card">
           <h2>${t("more_options_title")}</h2>
           <p class="muted small" style="margin-top:0">${t("more_options_hint")}</p>
           <button class="btn" @click=${() => this._navigate("/config/integrations/integration/storage_manager")}>${t("options")}</button>
         </div>`;
+    }
+
+    _renderStatsRetention() {
+      const t = this.t;
+      const r = this._statsRet;
+      if (!r) return nothing;
+      const d = this._statsDraft || {};
+      const busy = !!this._working;
+      const label = (m) => (m == null ? t("stats_ret_forever") : m === 12 ? t("stats_ret_year") : m % 12 === 0 ? t("stats_ret_years", { n: m / 12 }) : t("stats_ret_months", { n: m }));
+      const select = (key) => html`<select .value=${String(d[key] ?? "")} ?disabled=${busy}
+          @change=${(e) => { this._statsDraft = { ...d, [key]: e.target.value === "" ? null : Number(e.target.value) }; this._loadStatsPlan(); }}>
+          <option value="" ?selected=${d[key] == null}>${label(null)}</option>
+          ${r.options.map((m) => html`<option value=${m} ?selected=${d[key] === m}>${label(m)}</option>`)}
+        </select>`;
+      const p = this._statsPlan;
+      const changed = d.stats !== r.stats_months || d.energy !== r.energy_months;
+      const line = (group) => {
+        const g = p?.groups?.[group];
+        if (!g || g.months == null) return t("stats_ret_kept");
+        return g.rows
+          ? t("stats_ret_frees", { n: number(g.statistics, this.lang), rows: number(g.rows, this.lang), bytes: bytes(g.bytes, this.lang), date: g.oldest ? dateTime(g.oldest, this.lang) : "" })
+          : t("stats_ret_nothing_older");
+      };
+      return html`<div class="card">
+        <h2 class="wrap">${t("stats_ret_title")}</h2>
+        <p class="muted small" style="margin-top:0">${t("stats_ret_hint")}</p>
+        <div class="list-row kind-row">
+          <div><div>${t("stats_ret_other")}</div><div class="muted small">${line("other")}</div></div>
+          ${select("stats")}
+        </div>
+        <div class="list-row kind-row">
+          <div><div>${t("stats_ret_energy")}</div><div class="muted small">${line("energy")}</div></div>
+          ${select("energy")}
+        </div>
+        <p class="small ${r.active ? "" : "muted"}">${r.active
+          ? t("stats_ret_active")
+          : d.stats == null && d.energy == null ? t("stats_ret_off") : t("stats_ret_pending")}</p>
+        <div class="dead-actions">
+          <span class="spacer"></span>
+          <button class="btn" ?disabled=${busy || !changed} @click=${() => this._saveStatsRetention(false)}>${t("settings_save")}</button>
+          <button class="btn danger" ?disabled=${busy || (d.stats == null && d.energy == null)} @click=${() => this._saveStatsRetention(true)}>${t("stats_ret_apply")}</button>
+        </div>
+      </div>`;
     }
 
     _renderKind(k) {
@@ -1087,11 +1137,14 @@ export const DatabaseSection = (Base) =>
           ${(usage.yaml || []).length
             ? html`<li>${t("detail_yaml")}: ${usage.yaml.map((y) => `${y.file}:${y.line}`).join(", ")}</li>`
             : nothing}
+          ${this._otherCards(usage).length
+            ? html`<li>${t("detail_dashboard_cards", { titles: this._otherCards(usage).join(", ") })}</li>`
+            : nothing}
           ${(usage.dynamic || []).length
             ? html`<li class="muted">${t("detail_dynamic", { files: usage.dynamic.join(", ") })}</li>`
             : nothing}
           ${!autoNames.length && !scriptNames.length && !(usage.helpers || []).length && !(usage.dashboards || []).length && !usage.energy
-            && !(usage.statistics_cards || []).length && !(usage.yaml || []).length
+            && !(usage.statistics_cards || []).length && !(usage.yaml || []).length && !(usage.dashboard_cards || []).length
             ? html`<li class="muted">${t("detail_unused")}</li>`
             : nothing}
         </ul>

@@ -36,6 +36,7 @@ from . import (
     advisor,
     database,
     disk,
+    explorer,
     files,
     health,
     logs,
@@ -90,13 +91,26 @@ ALL_CLEAN_TARGETS = (
     "unused_statistics",
     "events",
     "dead",
+    "statistics_age",
 )
 # targets that delete rows from the database and run the safety chain first
-DB_DELETE_TARGETS = ("orphans", "statistics", "unused_statistics", "events", "dead", "purge")
-DEAD_DAYS = 7
+DB_DELETE_TARGETS = (
+    "orphans",
+    "statistics",
+    "unused_statistics",
+    "events",
+    "dead",
+    "statistics_age",
+    "purge",
+)
+DEAD_DAYS = 7  # unavailable for this long without a real value counts as dead
 UNDO_SPACE_MARGIN = 64 * 1024 * 1024
 # purge_entities is queued: keep some rows more in the undo file than it deletes
-UNDO_CUTOFF_MARGIN = 3600  # unavailable for this long without a real value counts as dead
+UNDO_CUTOFF_MARGIN = 3600
+# long-term statistics: keep options in months (None = forever)
+STATS_KEEP_MONTHS = (6, 12, 18, 24, 36, 48, 60, 84)
+STATS_ROW_BYTES = 100  # fallback size of one long-term statistics row
+DAYS_PER_MONTH = 30.4375
 STALE_IMPORT_DAYS = 90  # imported statistics without a new row for this long
 # event types the logbook shows: deleting them removes logbook entries
 LOGBOOK_EVENT_TYPES = frozenset(
@@ -176,6 +190,11 @@ def _changes_database(entry: dict[str, Any]) -> bool:
     )
 
 
+def _limits_cover(applied: list[int | None], new: list[int | None]) -> bool:
+    """Whether the new limits keep at least as much as the applied ones."""
+    return all(n is None or (a is not None and n >= a) for a, n in zip(applied, new, strict=True))
+
+
 def _needs_backup(db_targets: list[str]) -> bool:
     """Outdated rows go anyway in Home Assistant's nightly purge: no backup for those."""
     return any(t != "purge" for t in db_targets)
@@ -227,6 +246,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._potential_key: tuple[Any, ...] | None = None
         self._unused: dict[str, int] | None = None
         self._unused_key: tuple[Any, ...] | None = None
+        self._scans: dict[str, dict[str, Any]] = {}
+        self._scanning: str | None = None
         self._dead: dict[str, int] | None = None
         self._dead_key: tuple[Any, ...] | None = None
         self._analysis_control: database.AnalysisControl | None = None
@@ -1086,6 +1107,190 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._dead
 
     # ------------------------------------------------------------------
+    # folder explorer
+    # ------------------------------------------------------------------
+
+    async def async_folder_roots(self) -> dict[str, Any]:
+        """Folders that may be scanned, with their last scan."""
+        found = await self.hass.async_add_executor_job(explorer.roots, self.hass.config.config_dir)
+        return {
+            "roots": [
+                {
+                    "path": root,
+                    "config": root == found[0],
+                    "scanned_at": (self._scans.get(root) or {}).get("scanned_at"),
+                    "size": ((self._scans.get(root) or {}).get("dirs") or {})
+                    .get(root, {})
+                    .get("size"),
+                }
+                for root in found
+            ],
+            "scanning": self._scanning,
+        }
+
+    async def async_folder_scan(self, root: str) -> dict[str, Any]:
+        """Scan one of the allowed roots (read-only) and show its top level."""
+        allowed = await self.hass.async_add_executor_job(
+            explorer.roots, self.hass.config.config_dir
+        )
+        if root not in allowed:
+            raise HomeAssistantError("folder_not_allowed")
+        if self._scanning is not None:
+            raise HomeAssistantError("folder_scan_running")
+        self._scanning = root
+        try:
+            result: dict[str, Any] = await self.hass.async_add_executor_job(explorer.scan, root)
+        finally:
+            self._scanning = None
+        self._scans[root] = result
+        return explorer.browse(result, root)
+
+    def folder_browse(self, root: str, path: str) -> dict[str, Any]:
+        """A folder of the last scan of ``root``; only folders the scan saw."""
+        result = self._scans.get(root)
+        if result is None:
+            raise HomeAssistantError("folder_not_scanned")
+        try:
+            return explorer.browse(result, path)
+        except KeyError as err:
+            raise HomeAssistantError("folder_unknown") from err
+
+    # ------------------------------------------------------------------
+    # long-term statistics by age
+    # ------------------------------------------------------------------
+
+    def statistics_retention(self) -> dict[str, Any]:
+        """Limits for long-term statistics and whether the nightly run follows them."""
+        data = self.store.data
+        current = [data.stats_keep_months, data.energy_stats_keep_months]
+        return {
+            "stats_months": data.stats_keep_months,
+            "energy_months": data.energy_stats_keep_months,
+            "options": list(STATS_KEEP_MONTHS),
+            # the nightly run follows limits that keep at least what was applied
+            "active": any(current)
+            and data.stats_limits_applied is not None
+            and _limits_cover(data.stats_limits_applied, current),
+            "applied": data.stats_limits_applied,
+        }
+
+    def set_statistics_retention(
+        self, stats_months: int | None, energy_months: int | None
+    ) -> dict[str, Any]:
+        """Save the limits; nothing is deleted until they are applied once."""
+        for months in (stats_months, energy_months):
+            if months is not None and months not in STATS_KEEP_MONTHS:
+                raise HomeAssistantError(f"Unsupported number of months: {months}")
+        data = self.store.data
+        data.stats_keep_months = stats_months
+        data.energy_stats_keep_months = energy_months
+        applied = data.stats_limits_applied
+        if applied is not None and not _limits_cover(applied, [stats_months, energy_months]):
+            # shorter than what was applied: the nightly run waits for a confirmed run
+            data.stats_limits_applied = None
+        self.store.schedule_save()
+        self.store.log(
+            "statistics_retention",
+            0,
+            {"stats_months": stats_months, "energy_months": energy_months},
+        )
+        return self.statistics_retention()
+
+    def _stats_row_bytes(self) -> float:
+        stats = (self.store.data.analysis or {}).get("statistics") or {}
+        rows = sum(int(v.get("rows") or 0) for v in stats.values())
+        size = sum(int(v.get("est_bytes") or 0) for v in stats.values())
+        return size / rows if rows and size else float(STATS_ROW_BYTES)
+
+    async def async_statistics_age_plan(
+        self, stats_months: int | None, energy_months: int | None
+    ) -> dict[str, Any]:
+        """Long-term rows the limits would delete, split into energy dashboard and other."""
+        now = time.time()
+        energy = await usage_mod.async_energy_statistics(self.hass)
+        per_row = self._stats_row_bytes()
+        groups: dict[str, dict[str, Any]] = {}
+        items: list[dict[str, Any]] = []
+        for group, months in (("other", stats_months), ("energy", energy_months)):
+            info: dict[str, Any] = {"months": months, "statistics": 0, "rows": 0, "bytes": 0}
+            groups[group] = info
+            if months is None:
+                continue
+            cutoff = now - months * DAYS_PER_MONTH * 86400
+            info["cutoff"] = cutoff
+            oldest: float | None = None
+            for statistic_id, metadata_id, rows, first in await database.async_old_statistics(
+                self.hass, cutoff
+            ):
+                if (statistic_id in energy) != (group == "energy"):
+                    continue
+                info["statistics"] += 1
+                info["rows"] += rows
+                oldest = first if oldest is None else min(oldest, first)
+                items.append(
+                    {
+                        "statistic_id": statistic_id,
+                        "metadata_id": metadata_id,
+                        "rows": rows,
+                        "cutoff": cutoff,
+                        "group": group,
+                    }
+                )
+            info["bytes"] = int(info["rows"] * per_row)
+            info["oldest"] = oldest
+        return {
+            "groups": groups,
+            "rows": sum(g["rows"] for g in groups.values()),
+            "bytes": sum(g["bytes"] for g in groups.values()),
+            "items": items,
+        }
+
+    async def _statistics_age_current(self) -> dict[str, Any]:
+        data = self.store.data
+        return await self.async_statistics_age_plan(
+            data.stats_keep_months, data.energy_stats_keep_months
+        )
+
+    async def _clean_statistics_age(self, results: dict[str, Any], deleted: dict[str, Any]) -> None:
+        self._set_busy("statistics_age")
+        plan = await self._statistics_age_current()
+        rows = await self._delete_old_statistics(plan)
+        data = self.store.data
+        if data.stats_keep_months or data.energy_stats_keep_months:
+            data.stats_limits_applied = [data.stats_keep_months, data.energy_stats_keep_months]
+            self.store.schedule_save()
+        results["statistics_age"] = plan["bytes"] if rows else 0
+        deleted["statistics_age"] = {
+            "rows": rows,
+            "statistics": len(plan["items"]),
+            "stats_months": data.stats_keep_months,
+            "energy_months": data.energy_stats_keep_months,
+        }
+
+    async def _delete_old_statistics(self, plan: dict[str, Any]) -> int:
+        by_cutoff: dict[float, list[int]] = {}
+        for item in plan["items"]:
+            by_cutoff.setdefault(item["cutoff"], []).append(item["metadata_id"])
+        return await database.async_delete_old_statistics(
+            self.hass, [(ids, cutoff) for cutoff, ids in by_cutoff.items()]
+        )
+
+    async def async_run_statistics_age(self) -> int:
+        """Nightly: keep the applied limits (rows that aged past them since)."""
+        data = self.store.data
+        if not self.statistics_retention()["active"]:
+            return 0
+        if (data.integrity or {}).get("result") == safety.RESULT_CORRUPT:
+            _LOGGER.warning("Statistics limits skipped: the database failed its integrity check")
+            return 0
+        plan = await self._statistics_age_current()
+        if not plan["items"]:
+            return 0
+        rows = await self._delete_old_statistics(plan)
+        _LOGGER.debug("Deleted %s long-term statistics rows past the limits", rows)
+        return rows
+
+    # ------------------------------------------------------------------
     # targeted backup and undo
     # ------------------------------------------------------------------
 
@@ -1125,6 +1330,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             statistics.update(dead)
         if "events" in db_targets:
             spec.event_types = [e["event_type"] for e in self._events_selection(event_types)]
+        if "statistics_age" in db_targets:
+            for item in (await self._statistics_age_current())["items"]:
+                spec.old_statistics[item["statistic_id"]] = item["cutoff"]
         spec.statistics = sorted(statistics)
         return spec
 
@@ -1971,6 +2179,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "dead" in targets:
             items = await self._dead_selection(entity_ids)
             preview["dead"] = {"bytes": sum(i["bytes"] for i in items), "items": items}
+        if "statistics_age" in targets:
+            age = await self._statistics_age_current()
+            preview["statistics_age"] = {k: v for k, v in age.items() if k != "items"}
         if "backups" in targets:
             plan = [p for p in self.backup_plan() if p["action"] == "delete_local"]
             preview["backups"] = {
@@ -2236,6 +2447,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 estimate += sum(
                                     i["bytes"] for i in await self._dead_selection(entity_ids)
                                 )
+                            if "statistics_age" in db_targets:
+                                estimate += (await self._statistics_age_current())["bytes"]
                             if "events" in db_targets:
                                 estimate += sum(
                                     int(e.get("est_bytes") or 0)
@@ -2268,6 +2481,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._clean_events(event_types, results, deleted)
                     if "dead" in db_targets:
                         await self._clean_dead(entity_ids, results, deleted)
+                    if "statistics_age" in db_targets:
+                        await self._clean_statistics_age(results, deleted)
                     if db_targets:
                         # a fresh sample for the effect chart and fresh sizes
                         self._schedule_reanalysis()

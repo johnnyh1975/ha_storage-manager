@@ -29,7 +29,7 @@ SERVICE_ANALYZE = "analyze_database"
 SERVICE_SET_RETENTION = "set_retention"
 
 # dead entities need an explicit selection: only the panel offers them
-SERVICE_TARGETS = tuple(t for t in ALL_CLEAN_TARGETS if t != "dead")
+SERVICE_TARGETS = tuple(t for t in ALL_CLEAN_TARGETS if t not in ("dead", "statistics_age"))
 
 CLEANUP_SCHEMA = vol.Schema(
     {

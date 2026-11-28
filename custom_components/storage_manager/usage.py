@@ -96,6 +96,8 @@ class EntityUsage:
     statistics_cards: list[str] = field(default_factory=list)
     yaml: list[dict[str, Any]] = field(default_factory=list)
     dynamic: list[str] = field(default_factory=list)
+    # dashboards that show the entity in any card (titles)
+    dashboard_cards: list[str] = field(default_factory=list)
 
     @property
     def history_readers(self) -> list[dict[str, str]]:
@@ -120,6 +122,7 @@ class EntityUsage:
             "statistics_cards": self.statistics_cards,
             "yaml": self.yaml,
             "dynamic": self.dynamic,
+            "dashboard_cards": self.dashboard_cards,
         }
 
     @property
@@ -133,6 +136,7 @@ class EntityUsage:
             or self.energy
             or self.statistics_cards
             or self.yaml
+            or self.dashboard_cards
         )
 
     @property
@@ -208,6 +212,13 @@ def dashboard_requirements(config: dict[str, Any], title: str) -> dict[str, dict
             if current is None or days > current["days"]:
                 result[entity_id] = {"dashboard": title, "card": card["type"], "days": days}
     return result
+
+
+def dashboard_mentions(config: dict[str, Any]) -> set[str]:
+    """Every entity id a dashboard names, in any card or template text."""
+    import json  # noqa: PLC0415
+
+    return set(TOKEN_RE.findall(json.dumps(config)))
 
 
 def dashboard_statistics(config: dict[str, Any], title: str) -> set[str]:
@@ -306,16 +317,20 @@ def yaml_history_readers(hass: HomeAssistant) -> dict[str, list[dict[str, str]]]
     return found
 
 
-async def _dashboards(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
+async def _dashboards(
+    hass: HomeAssistant,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, set[str]]]:
+    """History needs per entity, and the dashboards that name each entity."""
+    mentions: dict[str, set[str]] = {}
     try:
         from homeassistant.components.lovelace.const import (  # noqa: PLC0415
             LOVELACE_DATA,
         )
     except ImportError:  # pragma: no cover
-        return {}
+        return {}, mentions
     data = hass.data.get(LOVELACE_DATA)
     if data is None:
-        return {}
+        return {}, mentions
     out: dict[str, list[dict[str, Any]]] = {}
     for url_path, dashboard in list(data.dashboards.items()):
         try:
@@ -324,13 +339,15 @@ async def _dashboards(hass: HomeAssistant) -> dict[str, list[dict[str, Any]]]:
             _LOGGER.debug("Skipping dashboard %s: %s", url_path, err)
             continue
         title = str(config.get("title") or url_path or "Overview")
+        for entity_id in dashboard_mentions(config):
+            mentions.setdefault(entity_id, set()).add(title)
         for entity_id, need in dashboard_requirements(config, title).items():
             out.setdefault(entity_id, []).append(need)
         for entity_id in dashboard_statistics(config, title):
             out.setdefault(entity_id, []).append(
                 {"dashboard": title, "card": "statistics", "days": 0}
             )
-    return out
+    return out, mentions
 
 
 async def _energy_entities(hass: HomeAssistant) -> set[str]:
@@ -365,6 +382,11 @@ async def _energy_entities(hass: HomeAssistant) -> set[str]:
     return found
 
 
+async def async_energy_statistics(hass: HomeAssistant) -> set[str]:
+    """Statistic ids the energy dashboard reads (configured ones and its cost sensors)."""
+    return await _energy_entities(hass)
+
+
 def _helpers(hass: HomeAssistant) -> dict[str, list[dict[str, str]]]:
     out: dict[str, list[dict[str, str]]] = {}
     for entry in hass.config_entries.async_entries():
@@ -379,7 +401,7 @@ def _helpers(hass: HomeAssistant) -> dict[str, list[dict[str, str]]]:
 async def async_collect(hass: HomeAssistant, entity_ids: Iterable[str]) -> dict[str, EntityUsage]:
     """Usage for the given entities (others are skipped for speed)."""
     wanted = set(entity_ids)
-    dashboards = await _dashboards(hass)
+    dashboards, mentions = await _dashboards(hass)
     energy = await _energy_entities(hass)
     helpers = _helpers(hass)
     for entity_id, readers in yaml_history_readers(hass).items():
@@ -418,6 +440,7 @@ async def async_collect(hass: HomeAssistant, entity_ids: Iterable[str]) -> dict[
             # only templates that loop over the entity's own domain; expand()
             # or area_entities() could reach anything and would flag everything
             dynamic=dynamic.get(entity_id.split(".", 1)[0], []),
+            dashboard_cards=sorted(mentions.get(entity_id, set())),
         )
         result[entity_id] = usage
     return result

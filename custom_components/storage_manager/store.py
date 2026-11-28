@@ -74,6 +74,11 @@ class ManagerData:
     stats_off: list[str] = field(default_factory=list)
     # entities Storage Manager disabled as dead: entity_id -> ISO time
     disabled_dead: dict[str, str] = field(default_factory=dict)
+    # months of long-term statistics to keep (None = forever): other / energy dashboard
+    stats_keep_months: int | None = None
+    energy_stats_keep_months: int | None = None
+    # the limits last applied from the panel; the nightly run only follows these
+    stats_limits_applied: list[int | None] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -124,6 +129,14 @@ class ManagerData:
             heavy_writers=data.get("heavy_writers"),
             stats_off=sorted({str(e) for e in data.get("stats_off") or []}),
             disabled_dead={str(k): str(v) for k, v in (data.get("disabled_dead") or {}).items()},
+            stats_keep_months=_months(data.get("stats_keep_months")),
+            energy_stats_keep_months=_months(data.get("energy_stats_keep_months")),
+            stats_limits_applied=(
+                [_months(v) for v in data["stats_limits_applied"]]
+                if isinstance(data.get("stats_limits_applied"), list)
+                and len(data["stats_limits_applied"]) == 2
+                else None
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -152,7 +165,18 @@ class ManagerData:
             "heavy_writers": self.heavy_writers,
             "stats_off": self.stats_off,
             "disabled_dead": self.disabled_dead,
+            "stats_keep_months": self.stats_keep_months,
+            "energy_stats_keep_months": self.energy_stats_keep_months,
+            "stats_limits_applied": self.stats_limits_applied,
         }
+
+
+def _months(value: Any) -> int | None:
+    try:
+        months = int(value)
+    except TypeError, ValueError:
+        return None
+    return months if months > 0 else None
 
 
 class ManagerStore:

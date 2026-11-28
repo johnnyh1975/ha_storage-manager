@@ -65,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> b
         await coordinator.async_run_retention(include_drop=False, include_daily=True)
         await coordinator.async_sweep_statistics_off()
         await coordinator.async_prune_undo()
+        await coordinator.async_run_statistics_age()
 
     async def _started(_hass: HomeAssistant) -> None:
         # statistics switched off before the restart: clear what was compiled since

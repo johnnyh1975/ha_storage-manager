@@ -167,6 +167,33 @@ async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     )
 
 
+async def _folder_roots(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_folder_roots()
+
+
+async def _folder_scan(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_folder_scan(msg["root"])
+
+
+async def _folder_browse(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return c.folder_browse(msg["root"], msg["path"])
+
+
+async def _statistics_retention(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    if "stats_months" in msg or "energy_months" in msg:
+        data = c.store.data
+        return c.set_statistics_retention(
+            msg.get("stats_months", data.stats_keep_months),
+            msg.get("energy_months", data.energy_stats_keep_months),
+        )
+    return c.statistics_retention()
+
+
+async def _statistics_age_plan(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    plan = await c.async_statistics_age_plan(msg.get("stats_months"), msg.get("energy_months"))
+    return {k: v for k, v in plan.items() if k != "items"}
+
+
 async def _undo_preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     return await c.async_undo_preview(msg["undo_id"])
 
@@ -366,6 +393,37 @@ def async_setup(hass: HomeAssistant) -> None:
         _preview,
     )
     _register(hass, {"type": f"{DOMAIN}/dead_entities"}, _dead_entities)
+    _register(hass, {"type": f"{DOMAIN}/folder_roots"}, _folder_roots)
+    folder = vol.All(str, vol.Length(min=1, max=4096))
+    _register(hass, {"type": f"{DOMAIN}/folder_scan", vol.Required("root"): folder}, _folder_scan)
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/folder_browse",
+            vol.Required("root"): folder,
+            vol.Required("path"): folder,
+        },
+        _folder_browse,
+    )
+    months = vol.Any(None, vol.All(int, vol.Range(min=1, max=120)))
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/statistics_retention",
+            vol.Optional("stats_months"): months,
+            vol.Optional("energy_months"): months,
+        },
+        _statistics_retention,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/statistics_age_plan",
+            vol.Optional("stats_months"): months,
+            vol.Optional("energy_months"): months,
+        },
+        _statistics_age_plan,
+    )
     undo_id = vol.All(str, vol.Match(r"^[0-9a-f-]{1,40}$"))
     _register(
         hass, {"type": f"{DOMAIN}/undo_preview", vol.Required("undo_id"): undo_id}, _undo_preview

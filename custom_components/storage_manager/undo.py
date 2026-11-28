@@ -48,7 +48,9 @@ MAX_ROWS = 5_000_000  # larger cleanups fall back to the full backup
 KEEP_DAYS = 14
 MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 # cleanup targets whose deletions a targeted undo can take back
-UNDO_TARGETS = frozenset({"orphans", "statistics", "unused_statistics", "events", "dead"})
+UNDO_TARGETS = frozenset(
+    {"orphans", "statistics", "unused_statistics", "events", "dead", "statistics_age"}
+)
 
 try:
     from homeassistant.components.recorder.db_schema import (
@@ -87,15 +89,18 @@ class Spec:
     states: dict[str, float | None] = field(default_factory=dict)
     statistics: list[str] = field(default_factory=list)
     event_types: list[str] = field(default_factory=list)
+    # statistic_id -> long-term rows older than this timestamp (metadata stays)
+    old_statistics: dict[str, float] = field(default_factory=dict)
 
     def empty(self) -> bool:
-        return not (self.states or self.statistics or self.event_types)
+        return not (self.states or self.statistics or self.event_types or self.old_statistics)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "entities": sorted(self.states),
             "statistics": sorted(self.statistics),
             "event_types": sorted(self.event_types),
+            "old_statistics": sorted(self.old_statistics),
         }
 
 
@@ -242,6 +247,20 @@ def count(session: Session, spec: Spec) -> int:
                 ).scalar()
                 or 0
             )
+    old = _ids(session, StatisticsMeta.statistic_id, StatisticsMeta.id, list(spec.old_statistics))
+    stt = Statistics.__table__
+    for statistic_id, meta_id in old.items():
+        total += int(
+            session.execute(
+                select(func.count())
+                .select_from(stt)
+                .where(
+                    stt.c.metadata_id == meta_id,
+                    stt.c.start_ts < spec.old_statistics[statistic_id],
+                )
+            ).scalar()
+            or 0
+        )
     types = _ids(session, EventTypes.event_type, EventTypes.event_type_id, spec.event_types)
     if types:
         et = Events.__table__
@@ -326,6 +345,20 @@ def export(session: Session, path: Path, spec: Spec) -> dict[str, Any]:
                     t = table.__table__
                     for stat in _paged(session, t, t.c.id, t.c.metadata_id == meta_id):
                         put(out, {"t": kind, "m": meta_id, "r": _row(stat, ("id", "metadata_id"))})
+        # old long-term rows of statistics that stay
+        exported = set(spec.statistics)
+        old = sorted(set(spec.old_statistics) - exported)
+        st_long = Statistics.__table__
+        for i in range(0, len(old), 500):
+            for smeta in session.execute(
+                select(sm).where(sm.c.statistic_id.in_(old[i : i + 500]))
+            ).mappings():
+                meta_id = int(smeta["id"])
+                before = spec.old_statistics[str(smeta["statistic_id"])]
+                put(out, {"t": "smeta", "id": meta_id, "r": _row(smeta, ("id",))})
+                where = (st_long.c.metadata_id == meta_id) & (st_long.c.start_ts < before)
+                for stat in _paged(session, st_long, st_long.c.id, where):
+                    put(out, {"t": "stat", "m": meta_id, "r": _row(stat, ("id", "metadata_id"))})
         # events with their types and data
         types = _ids(session, EventTypes.event_type, EventTypes.event_type_id, spec.event_types)
         ev = Events.__table__

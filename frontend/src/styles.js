@@ -540,5 +540,17 @@ export const styles = css`
   .tpl-steps { padding-left: 20px; }
   .tpl-steps li { margin: 4px 0; }
   .warn-text { color: var(--warning-color, #c77700); }
+  .explorer-roots { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .crumbs { margin: 8px 0 2px; overflow-wrap: anywhere; }
+  .explorer { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .explorer-list { flex: 1; min-width: 240px; }
+  .explorer-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) 30% 80px; gap: 8px; align-items: center; padding: 3px 0; }
+  .explorer-row .linklike { text-align: left; overflow-wrap: anywhere; }
+  .explorer-row .bar { height: 6px; background: var(--divider-color, #e0e0e0); border-radius: 3px; overflow: hidden; }
+  .explorer-row .bar span { display: block; height: 100%; background: var(--primary-color, #03a9f4); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  svg.donut circle { transition: opacity 0.2s; }
+  svg.donut circle:hover { opacity: 0.8; }
+  .donut-total { font-size: 14px; fill: var(--primary-text-color); }
   ul.group-members { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 13px; }
 `;
