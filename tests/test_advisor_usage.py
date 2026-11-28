@@ -259,9 +259,16 @@ async def test_collect_usage(prepared_hass: HomeAssistant) -> None:
         }
     )
     await hass.async_block_till_done()
-    result = await usage.async_collect(
-        hass, ["sensor.t", "sensor.lux", "sensor.grid", "sensor.none"]
+    # the cost sensor the energy integration creates for the grid source
+    from homeassistant.helpers import entity_registry as er
+
+    er.async_get(hass).async_get_or_create(
+        "sensor", "energy", "grid_cost", suggested_object_id="grid_cost"
     )
+    result = await usage.async_collect(
+        hass, ["sensor.t", "sensor.lux", "sensor.grid", "sensor.grid_cost", "sensor.none"]
+    )
+    assert result["sensor.grid_cost"].energy is True
     assert result["sensor.t"].automations == ["automation.warm"]
     assert result["sensor.t"].scripts == ["script.s1"]
     assert result["sensor.t"].min_days == 5

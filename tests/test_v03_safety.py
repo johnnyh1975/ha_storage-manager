@@ -709,7 +709,7 @@ async def test_repack_needs_clean_integrity(hass: HomeAssistant, tmp_path: Path)
 
 async def test_apply_runs_chain(hass: HomeAssistant) -> None:
     """Immediate purges from the panel wait for the chain; settings stay saved."""
-    entry = await setup_entry(hass, {"backup_before_delete": True})
+    entry = await setup_entry(hass, {"backup_before_delete": True, "targeted_backup": False})
     coordinator = entry.runtime_data
     with (
         patch.object(

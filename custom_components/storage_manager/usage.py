@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -356,6 +357,11 @@ async def _energy_entities(hass: HomeAssistant) -> set[str]:
                 _collect(item)
 
     _collect(manager.data or {})
+    # cost and compensation sensors the energy integration creates itself:
+    # the dashboard reads their statistics although no preference names them
+    for entry in er.async_get(hass).entities.values():
+        if entry.platform == "energy":
+            found.add(entry.entity_id)
     return found
 
 

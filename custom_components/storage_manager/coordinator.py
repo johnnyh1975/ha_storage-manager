@@ -1159,7 +1159,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_export_undo(self, spec: undo.Spec, delete_bytes: int) -> dict[str, Any]:
         hass = self.hass
         config_dir = hass.config.config_dir
-        await self.async_refresh()
+        # the safety chain has just refreshed the numbers
         free = int(self.data["disk"]["free"])
         need = safety.work_space(self._live_bytes(), delete_bytes) + (
             delete_bytes // 2 + UNDO_SPACE_MARGIN
