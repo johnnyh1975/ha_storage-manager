@@ -19,7 +19,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
 from . import panel, recorder_config, repairs, services, websocket_api
-from .const import CONF_ANALYSIS_HOUR, DOMAIN, STORAGE_KEY, STORAGE_VERSION
+from .const import CONF_ANALYSIS_HOUR, CONF_NIGHTLY_RUN, DOMAIN, STORAGE_KEY, STORAGE_VERSION
 from .coordinator import StorageCoordinator
 from .store import ManagerStore
 
@@ -42,6 +42,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> b
     """Set up Storage Manager from a config entry."""
     store = ManagerStore(hass)
     await store.async_load()
+    if (running := store.log_interrupted()) is not None:
+        _LOGGER.warning(
+            "Storage Manager was interrupted during %s (started %s)",
+            running.get("action"),
+            running.get("started"),
+        )
 
     coordinator = StorageCoordinator(hass, entry, store)
     await coordinator.async_prepare()
@@ -62,10 +68,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: StorageConfigEntry) -> b
         await coordinator.async_run_retention(include_drop=True, include_daily=False)
 
     async def _daily(_now: datetime) -> None:
-        await coordinator.async_run_retention(include_drop=False, include_daily=True)
         await coordinator.async_sweep_statistics_off()
         await coordinator.async_prune_undo()
-        await coordinator.async_run_statistics_age()
+        if coordinator.options[CONF_NIGHTLY_RUN]:
+            await coordinator.async_nightly("schedule")
 
     async def _started(_hass: HomeAssistant) -> None:
         # statistics switched off before the restart: clear what was compiled since

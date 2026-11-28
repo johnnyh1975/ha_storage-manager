@@ -25,6 +25,7 @@
           "require_offsite": "Only delete if stored elsewhere",
           "backup_before_delete": "Back up before deleting from the database",
           "targeted_backup": "Targeted backup with undo instead of a full backup",
+          "nightly_run": "Nightly maintenance at 04:37",
           "update_interval": "Update interval",
           "analysis_hour": "Daily database analysis at"
         },
@@ -34,7 +35,8 @@
           "backup_rotation": "Delete local backup copies that fall outside the daily/weekly/monthly schedule when you run a cleanup.",
           "require_offsite": "Keep a local copy unless the same backup exists on another location (NAS, cloud).",
           "backup_before_delete": "Before history or statistics are deleted, a backup of Home Assistant with the database is created and verified. A backup with the database from the last six hours is reused.",
-          "targeted_backup": "For orphaned history, statistics, dead entities and events, only the rows that are deleted are saved, and the history offers Undo. If that is not possible (too many rows, too little space), the full backup is created as before. The global purge always uses the full backup."
+          "targeted_backup": "For orphaned history, statistics, dead entities and events, only the rows that are deleted are saved, and the history offers Undo. If that is not possible (too many rows, too little space), the full backup is created as before. The global purge always uses the full backup.",
+          "nightly_run": "Applies the retention tiers and the long-term statistics limits every night. Turn it off to run the action storage_manager.run_nightly from your own automation instead."
         }
       }
     }
@@ -184,6 +186,10 @@
           "description": "Only report what would be freed."
         }
       }
+    },
+    "run_nightly": {
+      "name": "Run the nightly maintenance",
+      "description": "Apply the retention tiers and the long-term statistics limits now, as the nightly run does. Fires storage_manager_nightly_run when done."
     },
     "analyze_database": {
       "name": "Analyze database",

@@ -41,6 +41,7 @@ Q_STATES_CHUNK = text(
            SUM(CASE WHEN s.last_updated_ts >= :since THEN 1 ELSE 0 END) AS cnt24,
            COALESCE(SUM(LENGTH(s.state)), 0) AS state_len,
            MIN(s.last_updated_ts) AS oldest,
+           MAX(s.last_updated_ts) AS newest,
            SUM(CASE WHEN s.last_changed_ts IS NOT NULL THEN 1 ELSE 0 END) AS attr_only,
            SUM(CASE WHEN s.last_updated_ts < :cutoff THEN 1 ELSE 0 END) AS obsolete
     FROM states s
@@ -260,6 +261,7 @@ def _blank() -> dict[str, Any]:
         "attr_len": 0,
         "attr_only": 0,
         "oldest": None,
+        "newest": None,
         "stat_rows": 0,
     }
 
@@ -283,7 +285,7 @@ def _analyze(
 
     def states_chunk(session: Session, low: int, high: int) -> None:
         params = {"since": since, "cutoff": cutoff, "lo": low, "hi": high}
-        for meta, cnt, cnt24, state_len, oldest, attr_only, old in session.execute(
+        for meta, cnt, cnt24, state_len, oldest, newest, attr_only, old in session.execute(
             Q_STATES_CHUNK, params
         ):
             obsolete["states"] += int(old or 0)
@@ -296,6 +298,8 @@ def _analyze(
             info["attr_only"] += int(attr_only or 0)
             if oldest is not None and (info["oldest"] is None or oldest < info["oldest"]):
                 info["oldest"] = float(oldest)
+            if newest is not None and (info["newest"] is None or newest > info["newest"]):
+                info["newest"] = float(newest)
 
     attr_totals = {"shared_rows": 0, "loose_rows": 0, "loose_len": 0}
 
@@ -719,6 +723,89 @@ def run_write(instance: Any, job: Callable[[Session], Any]) -> Any:
     """Run a writing job with a session (on the recorder thread)."""
     with session_scope(session=instance.get_session()) as session:
         return job(session)
+
+
+RAW_KINDS = ("states", "statistics", "statistics_short_term")
+
+
+def _raw_rows(
+    session: Session, entity_id: str, kind: str, before: float | None, limit: int
+) -> list[dict[str, Any]]:
+    """Stored rows of one entity or statistic, newest first."""
+    until = before if before is not None else 1e12
+    if kind == "states":
+        query = text(
+            "SELECT s.state, s.last_updated_ts, s.last_changed_ts, a.shared_attrs "
+            "FROM states s JOIN states_meta m ON m.metadata_id = s.metadata_id "
+            "LEFT JOIN state_attributes a ON a.attributes_id = s.attributes_id "
+            "WHERE m.entity_id = :e AND s.last_updated_ts < :until "
+            "ORDER BY s.last_updated_ts DESC LIMIT :n"
+        )
+        return [
+            {
+                "state": state,
+                "ts": float(updated),
+                "changed": float(changed) if changed is not None else None,
+                "attributes": attrs,
+            }
+            for state, updated, changed, attrs in session.execute(
+                query, {"e": entity_id, "until": until, "n": limit}
+            )
+        ]
+    table = "statistics" if kind == "statistics" else "statistics_short_term"
+    query = text(
+        f"SELECT s.start_ts, s.mean, s.min, s.max, s.state, s.sum FROM {table} s "  # noqa: S608 - fixed name
+        "JOIN statistics_meta m ON m.id = s.metadata_id "
+        "WHERE m.statistic_id = :e AND s.start_ts < :until ORDER BY s.start_ts DESC LIMIT :n"
+    )
+    return [
+        {"ts": float(start), "mean": mean, "min": low, "max": high, "state": state, "sum": total}
+        for start, mean, low, high, state, total in session.execute(
+            query, {"e": entity_id, "until": until, "n": limit}
+        )
+    ]
+
+
+async def async_raw_rows(
+    hass: HomeAssistant, entity_id: str, kind: str, before: float | None, limit: int
+) -> list[dict[str, Any]]:
+    """Stored rows for the inspector (read-only)."""
+    if kind not in RAW_KINDS:
+        raise HomeAssistantError(f"Unknown kind {kind}")
+    return list(await async_read(hass, lambda s: _raw_rows(s, entity_id, kind, before, limit)))
+
+
+def _writers(session: Session, start: float, end: float, limit: int) -> dict[str, Any]:
+    states = session.execute(
+        text(
+            "SELECT m.entity_id, COUNT(*) FROM states s "
+            "JOIN states_meta m ON m.metadata_id = s.metadata_id "
+            "WHERE s.last_updated_ts >= :a AND s.last_updated_ts < :b "
+            "GROUP BY m.entity_id ORDER BY COUNT(*) DESC LIMIT :n"
+        ),
+        {"a": start, "b": end, "n": limit},
+    ).all()
+    events = session.execute(
+        text(
+            "SELECT t.event_type, COUNT(*) FROM events e "
+            "JOIN event_types t ON t.event_type_id = e.event_type_id "
+            "WHERE e.time_fired_ts >= :a AND e.time_fired_ts < :b "
+            "GROUP BY t.event_type ORDER BY COUNT(*) DESC LIMIT :n"
+        ),
+        {"a": start, "b": end, "n": limit},
+    ).all()
+    return {
+        "states": [(str(e), int(n)) for e, n in states],
+        "events": [(str(e), int(n)) for e, n in events],
+    }
+
+
+async def async_writers(
+    hass: HomeAssistant, start: float, end: float, limit: int = 30
+) -> dict[str, Any]:
+    """Entities and event types with the most rows in a period (as still stored)."""
+    result: dict[str, Any] = await async_read(hass, lambda s: _writers(s, start, end, limit))
+    return result
 
 
 NO_VALUE_STATES = ("unavailable", "unknown")

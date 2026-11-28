@@ -25,6 +25,7 @@
           "require_offsite": "Nur löschen, wenn extern vorhanden",
           "backup_before_delete": "Vor dem Löschen in der Datenbank sichern",
           "targeted_backup": "Gezielte Sicherung mit Rückgängig statt vollem Backup",
+          "nightly_run": "Nächtliche Pflege um 04:37",
           "update_interval": "Aktualisierungsintervall",
           "analysis_hour": "Tägliche Datenbankanalyse um"
         },
@@ -34,7 +35,8 @@
           "backup_rotation": "Lokale Backup-Kopien außerhalb des Tages-/Wochen-/Monatsschemas beim Aufräumen löschen.",
           "require_offsite": "Lokale Kopie behalten, solange dasselbe Backup nicht an einem anderen Ort (NAS, Cloud) liegt.",
           "backup_before_delete": "Bevor Verlauf oder Statistiken gelöscht werden, wird ein Backup von Home Assistant mit Datenbank erstellt und geprüft. Ein Backup mit Datenbank aus den letzten sechs Stunden wird wiederverwendet.",
-          "targeted_backup": "Bei verwaisten Verläufen, Statistiken, toten Entitäten und Ereignissen werden nur die gelöschten Zeilen gesichert, und der Verlauf bietet „Rückgängig“. Geht das nicht (zu viele Zeilen, zu wenig Platz), wird wie bisher ein volles Backup erstellt. Der globale Purge nutzt immer das volle Backup."
+          "targeted_backup": "Bei verwaisten Verläufen, Statistiken, toten Entitäten und Ereignissen werden nur die gelöschten Zeilen gesichert, und der Verlauf bietet „Rückgängig“. Geht das nicht (zu viele Zeilen, zu wenig Platz), wird wie bisher ein volles Backup erstellt. Der globale Purge nutzt immer das volle Backup.",
+          "nightly_run": "Wendet jede Nacht die Aufbewahrungsstufen und die Grenzen der Langzeitstatistik an. Ausschalten, um stattdessen die Aktion storage_manager.run_nightly aus einer eigenen Automation zu starten."
         }
       }
     }
@@ -184,6 +186,10 @@
           "description": "Nur melden, was frei würde."
         }
       }
+    },
+    "run_nightly": {
+      "name": "Nächtliche Pflege ausführen",
+      "description": "Wendet Aufbewahrungsstufen und Grenzen der Langzeitstatistik jetzt an, wie der nächtliche Lauf. Löst danach storage_manager_nightly_run aus."
     },
     "analyze_database": {
       "name": "Datenbank analysieren",

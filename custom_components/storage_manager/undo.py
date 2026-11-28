@@ -385,7 +385,7 @@ def export(session: Session, path: Path, spec: Spec) -> dict[str, Any]:
             ).mappings():
                 put(out, {"t": "edata", "id": data["data_id"], "r": _row(data, ("data_id",))})
         out.write(json.dumps({"kind": "end", "rows": rows}).encode() + b"\n")
-    header, found = read_header(tmp)
+    header, found, _columns = read_header(tmp)
     if found != rows:  # pragma: no cover - the file system lost data
         tmp.unlink(missing_ok=True)
         raise UndoError("not_verified")
@@ -416,12 +416,63 @@ def _lines(path: Path) -> Iterator[dict[str, Any]]:
         raise UndoError("damaged", str(err)) from err
 
 
-def read_header(path: Path) -> tuple[dict[str, Any], dict[str, int]]:
-    """Header and verified row counts; raises when the file is incomplete (blocking)."""
+# columns a restore cannot do without, per line kind (besides the ones the
+# current schema requires); ids are remapped and never taken from the file
+KEY_COLUMNS: dict[str, tuple[str, ...]] = {
+    "state": ("last_updated_ts",),
+    "attr": ("hash", "shared_attrs"),
+    "smeta": ("statistic_id",),
+    "stat": ("start_ts",),
+    "stst": ("start_ts",),
+    "edata": ("hash", "shared_data"),
+    "event": ("time_fired_ts",),
+}
+_MAPPED = frozenset({"metadata_id", "attributes_id", "event_type_id", "data_id", "old_state_id"})
+
+
+def _tables() -> dict[str, Any]:
+    return {
+        "state": States,
+        "attr": StateAttributes,
+        "smeta": StatisticsMeta,
+        "stat": Statistics,
+        "stst": StatisticsShortTerm,
+        "edata": EventData,
+        "event": Events,
+    }
+
+
+def missing_columns(columns: dict[str, set[str]]) -> list[str]:
+    """Columns the current schema needs that the file does not have, as table.column."""
+    missing: list[str] = []
+    for kind, names in sorted(columns.items()):
+        table = _tables().get(kind)
+        if table is None:
+            continue
+        need = set(KEY_COLUMNS.get(kind, ()))
+        need |= {
+            c.name
+            for c in table.__table__.c
+            if not c.nullable
+            and not c.primary_key
+            and c.default is None
+            and c.server_default is None
+            and c.name not in _MAPPED
+        }
+        missing += [f"{table.__tablename__}.{n}" for n in sorted(need - names)]
+    return missing
+
+
+def read_header(path: Path) -> tuple[dict[str, Any], dict[str, int], dict[str, set[str]]]:
+    """Header, verified row counts and the columns per kind of line.
+
+    Raises when the file is incomplete (blocking).
+    """
     if not path.is_file():
         raise UndoError("missing")
     header: dict[str, Any] | None = None
     counted: dict[str, int] = {}
+    columns: dict[str, set[str]] = {}
     end: dict[str, Any] | None = None
     for line in _lines(path):
         if end is not None:
@@ -431,21 +482,32 @@ def read_header(path: Path) -> tuple[dict[str, Any], dict[str, int]]:
         elif line.get("kind") == "end":
             end = line
         elif "t" in line:
-            counted[line["t"]] = counted.get(line["t"], 0) + 1
+            kind = line["t"]
+            counted[kind] = counted.get(kind, 0) + 1
+            if isinstance(line.get("r"), dict):
+                columns.setdefault(kind, set()).update(line["r"])
     if header is None or end is None or end.get("rows") != counted:
         raise UndoError("incomplete")
     if header.get("format") != FORMAT:
         raise UndoError("format", str(header.get("format")))
-    return header, counted
+    return header, counted, columns
 
 
 def describe(path: Path) -> dict[str, Any]:
-    """What a restore would bring back (blocking)."""
-    header, rows = read_header(path)
+    """What a restore would bring back (blocking).
+
+    A file from an older recorder schema can still be restored as long as it
+    has every column the current schema needs; columns that no longer exist
+    are left out.
+    """
+    header, rows, columns = read_header(path)
+    missing = missing_columns(columns)
     return {
         "created": header["created"],
         "schema": header["schema"],
-        "schema_ok": header["schema"] == SCHEMA_VERSION,
+        "schema_changed": header["schema"] != SCHEMA_VERSION,
+        "schema_ok": not missing,
+        "missing": missing,
         "spec": header["spec"],
         "rows": _summary(rows),
         "bytes": path.stat().st_size,
@@ -533,9 +595,10 @@ def restore(session: Session, path: Path) -> dict[str, Any]:
     """Bring the rows of ``path`` back (blocking, on the recorder thread)."""
     if not AVAILABLE:  # pragma: no cover - recorder internals changed
         raise UndoError("unavailable")
-    header, _rows = read_header(path)
-    if header["schema"] != SCHEMA_VERSION:
-        raise UndoError("schema", f"{header['schema']} != {SCHEMA_VERSION}")
+    _header, _rows, columns = read_header(path)
+    missing = missing_columns(columns)
+    if missing:
+        raise UndoError("schema", ", ".join(missing))
 
     meta: dict[int, int] = {}
     attrs: dict[int, int] = {}

@@ -60,6 +60,7 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     DEFAULT_OPTIONS,
     DOMAIN,
+    EVENT_NIGHTLY_RUN,
     RETENTION_TIERS,
     SAMPLE_INTERVAL_MIN,
     SIGNAL_UPDATED,
@@ -188,6 +189,22 @@ def _changes_database(entry: dict[str, Any]) -> bool:
     return bool(targets & {*DB_DELETE_TARGETS, "repack"}) and not (
         (entry.get("details") or {}).get("blocked")
     )
+
+
+def _used_flag(entity_usage: usage_mod.EntityUsage | None) -> str | None:
+    """yes / dynamic / no for the usage facet (None: not known)."""
+    if entity_usage is None:
+        return None
+    if entity_usage.used:
+        return "yes"
+    return "dynamic" if entity_usage.dynamic else "no"
+
+
+def _defined_in(entry: er.RegistryEntry | None, state: Any) -> str:
+    """Where an entity comes from: ui, yaml, yaml_no_id or gone."""
+    if entry is not None:
+        return "ui" if entry.config_entry_id else "yaml"
+    return "yaml_no_id" if state is not None else "gone"
 
 
 def _limits_cover(applied: list[int | None], new: list[int | None]) -> bool:
@@ -713,8 +730,16 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                     by_tier = {}
             estimate = self._estimate_purge(by_tier)
-            for keep_days, entity_ids in by_tier.items():
-                await database.async_purge_entities(self.hass, entity_ids, keep_days)
+            if by_tier:
+                await self.store.async_mark_running(
+                    "purge_entities", {"entities": sum(len(v) for v in by_tier.values())}
+                )
+            try:
+                for keep_days, entity_ids in by_tier.items():
+                    await database.async_purge_entities(self.hass, entity_ids, keep_days)
+            finally:
+                if by_tier:
+                    await self.store.async_clear_running()
             self._adjust_analysis(by_tier)
             if estimate:
                 details: dict[str, Any] = {
@@ -773,8 +798,34 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 total += int(state_part * max(share, 0))
         return total
 
-    async def async_run_retention(self, *, include_drop: bool, include_daily: bool) -> None:
-        """Enforce retention tiers (called by the scheduler)."""
+    async def async_nightly(self, trigger: str) -> dict[str, Any]:
+        """Retention tiers and statistics limits, then the event for own automations."""
+        started = time.time()
+        errors: list[str] = []
+        entities = statistics_rows = 0
+        # one failing step must not stop the other or the event
+        try:
+            entities = await self.async_run_retention(include_drop=False, include_daily=True)
+        except Exception as err:  # noqa: BLE001 - reported in the event and the log
+            _LOGGER.warning("Nightly retention run failed: %s", err)
+            errors.append(f"retention: {err}")
+        try:
+            statistics_rows = await self.async_run_statistics_age()
+        except Exception as err:  # noqa: BLE001 - reported in the event and the log
+            _LOGGER.warning("Nightly statistics run failed: %s", err)
+            errors.append(f"statistics: {err}")
+        summary = {
+            "trigger": trigger,
+            "entities": entities,
+            "statistics_rows": statistics_rows,
+            "seconds": round(time.time() - started, 1),
+            "errors": errors,
+        }
+        self.hass.bus.async_fire(EVENT_NIGHTLY_RUN, summary)
+        return summary
+
+    async def async_run_retention(self, *, include_drop: bool, include_daily: bool) -> int:
+        """Enforce retention tiers (called by the scheduler); returns the entities purged."""
         groups: dict[int, list[str]] = {}
         for entity_id, tier in self.store.data.retention.items():
             keep = RETENTION_TIERS.get(tier)
@@ -787,9 +838,10 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             groups.setdefault(keep, []).append(entity_id)
         if (self.store.data.integrity or {}).get("result") == safety.RESULT_CORRUPT:
             _LOGGER.warning("Retention skipped: the database failed its integrity check")
-            return
+            return 0
         for keep_days, entity_ids in groups.items():
             await database.async_purge_entities(self.hass, entity_ids, keep_days)
+        return sum(len(ids) for ids in groups.values())
 
     # ------------------------------------------------------------------
     # statistics nobody needs
@@ -1105,6 +1157,69 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._dead = {"count": len(items), "bytes": dead["bytes"]}
             self._dead_key = key
         return self._dead
+
+    # ------------------------------------------------------------------
+    # inspector and time window
+    # ------------------------------------------------------------------
+
+    async def async_raw_rows(
+        self, entity_id: str, kind: str, before: float | None, limit: int
+    ) -> dict[str, Any]:
+        """A page of stored rows, newest first, with the cursor for the next page."""
+        rows = await database.async_raw_rows(self.hass, entity_id, kind, before, limit + 1)
+        more = len(rows) > limit
+        rows = rows[:limit]
+        return {
+            "kind": kind,
+            "rows": rows,
+            "next": rows[-1]["ts"] if more and rows else None,
+        }
+
+    async def async_writers(self, start: float, end: float) -> dict[str, Any]:
+        """Who wrote in a period, with the bytes estimated from the analysis."""
+        if end <= start:
+            raise HomeAssistantError("Empty period")
+        found = await database.async_writers(self.hass, start, end)
+        analysis = self.store.data.analysis or {}
+        entities = analysis.get("entities") or {}
+        events = {e["event_type"]: e for e in analysis.get("events") or []}
+        states_meta = self.hass.states
+
+        def per_row(info: dict[str, Any] | None) -> float:
+            if not info or not info.get("rows"):
+                return 0.0
+            state_bytes = info.get("est_state_bytes", info.get("est_bytes")) or 0
+            return float(state_bytes) / float(info["rows"])
+
+        writers = []
+        for entity_id, rows in found["states"]:
+            state = states_meta.get(entity_id)
+            writers.append(
+                {
+                    "entity_id": entity_id,
+                    "name": (state.name if state is not None else None) or entity_id,
+                    "rows": rows,
+                    "bytes": int(rows * per_row(entities.get(entity_id))),
+                }
+            )
+        event_rows = [
+            {
+                "event_type": event_type,
+                "rows": rows,
+                "bytes": int(rows * per_row(events.get(event_type))),
+            }
+            for event_type, rows in found["events"]
+        ]
+        # the recorder purges rows older than its keep_days every night
+        oldest = time.time() - int(get_instance(self.hass).keep_days) * 86400
+        return {
+            "start": start,
+            "end": end,
+            "states": writers,
+            "events": event_rows,
+            # rows older than the retention are gone: the period may be partly empty
+            "complete_from": oldest,
+        }
 
     # ------------------------------------------------------------------
     # folder explorer
@@ -1444,11 +1559,13 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         async with self._lock:
             self._set_busy("undo")
+            await self.store.async_mark_running("undo", {"undo_id": undo_id})
             try:
                 if not await repack.async_run_on_recorder(self.hass, job):  # pragma: no cover
                     raise HomeAssistantError("undo_unavailable")
             finally:
                 self._set_busy(None)
+                await self.store.async_clear_running()
         if preview["enable"]:
             await self.async_enable_dead(preview["enable"])
         if preview["statistics_on"]:
@@ -1630,6 +1747,11 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             | set(data.excluded)
         )
         known = self._known_entities()
+        try:
+            usage = await self.async_usage(ids)
+        except Exception:  # noqa: BLE001 - the list works without the usage facet
+            _LOGGER.debug("Usage for the entity list not available", exc_info=True)
+            usage = {}
         rows: list[dict[str, Any]] = []
         for entity_id in ids:
             entry = ent_reg.async_get(entity_id)
@@ -1667,6 +1789,9 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "orphan": entity_id not in known,
                     "top": entity_id in top,
                     "advice": advice.get(entity_id),
+                    "newest": info.get("newest"),
+                    "used": _used_flag(usage.get(entity_id)),
+                    "defined_in": _defined_in(entry, state),
                 }
             )
         rows.sort(key=lambda r: (r["est_bytes"], r["rows"]), reverse=True)
@@ -2471,6 +2596,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             await self._async_require_integrity()
                     except safety.SafetyError as err:
                         blocked = {"reason": err.reason, "detail": err.detail}
+                if blocked is None and db_targets:
+                    await self.store.async_mark_running("cleanup", {"targets": db_targets})
                 if blocked is None:
                     await self._clean_database(
                         db_targets, entity_ids, statistic_ids, results, deleted, errors
@@ -2490,6 +2617,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._clean_repack(repack_method, convert, results, errors)
             finally:
                 self._set_busy(None)
+                if self.store.data.running is not None:
+                    await self.store.async_clear_running()
 
             # the Supervisor breakdown is cached for an hour; it changed now
             self.invalidate("breakdown")

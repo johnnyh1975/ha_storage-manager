@@ -255,7 +255,7 @@ async def test_buttons_diagnostics_and_schedules(hass: HomeAssistant) -> None:
     assert diag["options"]["low_space_percent"] == 15
 
     with (
-        patch.object(coordinator, "async_run_retention", AsyncMock()) as retention,
+        patch.object(coordinator, "async_run_retention", AsyncMock(return_value=0)) as retention,
         patch.object(coordinator, "async_schedule_analysis") as analysis,
     ):
         now = dt_util.now()

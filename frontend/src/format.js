@@ -47,8 +47,8 @@ export function relativeTime(ts, t, lang = "en") {
   return "";
 }
 
-export function dateTime(value, lang = "en") {
+export function dateTime(value, lang = "en", seconds = false) {
   if (!value) return "–";
   const d = typeof value === "number" ? new Date(value * 1000) : new Date(value);
-  return new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: "short" }).format(d);
+  return new Intl.DateTimeFormat(lang, { dateStyle: "medium", timeStyle: seconds ? "medium" : "short" }).format(d);
 }

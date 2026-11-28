@@ -27,6 +27,7 @@ from .const import (
     CONF_KEEP_MONTHLY,
     CONF_KEEP_WEEKLY,
     CONF_LOW_SPACE_PERCENT,
+    CONF_NIGHTLY_RUN,
     CONF_REQUIRE_OFFSITE,
     CONF_TARGETED_BACKUP,
     CONF_UPDATE_INTERVAL,
@@ -68,6 +69,7 @@ def _schema(options: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_TARGETED_BACKUP, default=o[CONF_TARGETED_BACKUP]
             ): selector.BooleanSelector(),
+            vol.Required(CONF_NIGHTLY_RUN, default=o[CONF_NIGHTLY_RUN]): selector.BooleanSelector(),
             vol.Required(CONF_UPDATE_INTERVAL, default=o[CONF_UPDATE_INTERVAL]): _number(
                 5, 240, "min"
             ),

@@ -196,10 +196,33 @@ async def test_refusals(hass: HomeAssistant, tmp_path) -> None:
     with pytest.raises(undo.UndoError) as err:
         undo.read_header(foreign)
     assert err.value.reason == "format"
-    other = write("schema.gz", [json.dumps({**header, "schema": 1}).encode(), *lines[1:]])
-    assert undo.describe(other)["schema_ok"] is False
+    # an older schema with every needed column: restored, extra columns dropped
+    old_rows = []
+    for raw in lines[1:]:
+        line = json.loads(raw)
+        if line.get("t") == "state":
+            line["r"]["column_of_the_past"] = 1
+        old_rows.append(json.dumps(line).encode())
+    other = write("schema.gz", [json.dumps({**header, "schema": 1}).encode(), *old_rows])
+    info = undo.describe(other)
+    assert (info["schema_ok"], info["schema_changed"], info["missing"]) == (True, True, [])
+    await database.async_purge_entities(hass, ["sensor.gone"], 0)
+    await async_wait_recording_done(hass)
+    assert (await _restore(hass, other))["added"]["states"] == 3
+    # a file without a column the restore needs is refused
+    stripped = []
+    for raw in lines[1:]:
+        line = json.loads(raw)
+        if line.get("t") == "state":
+            line["r"].pop("last_updated_ts", None)
+        stripped.append(json.dumps(line).encode())
+    broken_columns = write("columns.gz", [lines[0], *stripped])
+    info = undo.describe(broken_columns)
+    assert info["schema_ok"] is False
+    assert info["missing"] == ["states.last_updated_ts"]
     with pytest.raises(HomeAssistantError, match="schema"):
-        await _restore(hass, other)
+        await _restore(hass, broken_columns)
+    assert undo.missing_columns({"unknown": {"x"}}) == []
     broken = tmp_path / "broken.gz"
     broken.write_bytes(b"not gzip")
     with pytest.raises(undo.UndoError) as err:

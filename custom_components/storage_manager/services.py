@@ -27,6 +27,7 @@ ENSURE_LIST = vol.EnsureList() if hasattr(vol, "EnsureList") else cv.ensure_list
 SERVICE_CLEANUP = "cleanup"
 SERVICE_ANALYZE = "analyze_database"
 SERVICE_SET_RETENTION = "set_retention"
+SERVICE_RUN_NIGHTLY = "run_nightly"
 
 # dead entities need an explicit selection: only the panel offers them
 SERVICE_TARGETS = tuple(t for t in ALL_CLEAN_TARGETS if t not in ("dead", "statistics_age"))
@@ -105,4 +106,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SET_RETENTION, _set_retention, schema=RETENTION_SCHEMA
+    )
+
+    async def _run_nightly(call: ServiceCall) -> ServiceResponse:
+        return await _coordinator(hass).async_nightly("action")
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_RUN_NIGHTLY, _run_nightly, supports_response=SupportsResponse.OPTIONAL
     )

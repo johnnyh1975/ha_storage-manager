@@ -79,6 +79,8 @@ class ManagerData:
     energy_stats_keep_months: int | None = None
     # the limits last applied from the panel; the nightly run only follows these
     stats_limits_applied: list[int | None] | None = None
+    # a database change in progress; still set after a restart = interrupted
+    running: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> ManagerData:
@@ -131,6 +133,7 @@ class ManagerData:
             disabled_dead={str(k): str(v) for k, v in (data.get("disabled_dead") or {}).items()},
             stats_keep_months=_months(data.get("stats_keep_months")),
             energy_stats_keep_months=_months(data.get("energy_stats_keep_months")),
+            running=data.get("running") if isinstance(data.get("running"), dict) else None,
             stats_limits_applied=(
                 [_months(v) for v in data["stats_limits_applied"]]
                 if isinstance(data.get("stats_limits_applied"), list)
@@ -168,6 +171,7 @@ class ManagerData:
             "stats_keep_months": self.stats_keep_months,
             "energy_stats_keep_months": self.energy_stats_keep_months,
             "stats_limits_applied": self.stats_limits_applied,
+            "running": self.running,
         }
 
 
@@ -199,6 +203,37 @@ class ManagerStore:
     async def async_save(self) -> None:
         """Save now."""
         await self._store.async_save(self.data.as_dict())
+
+    async def async_mark_running(self, action: str, details: dict[str, Any]) -> None:
+        """Note a database change before it starts (saved at once)."""
+        self.data.running = {
+            "action": action,
+            "started": dt_util.utcnow().isoformat(),
+            "details": details,
+        }
+        await self.async_save()
+
+    async def async_clear_running(self) -> None:
+        """The change finished (or failed cleanly)."""
+        self.data.running = None
+        await self.async_save()
+
+    def log_interrupted(self) -> dict[str, Any] | None:
+        """After a start: record a change that a restart cut short."""
+        running = self.data.running
+        if not running:
+            return None
+        self.data.running = None
+        self.log(
+            "interrupted",
+            0,
+            {
+                "interrupted_action": running.get("action"),
+                "started": running.get("started"),
+                **(running.get("details") or {}),
+            },
+        )
+        return running
 
     # ---- helpers -------------------------------------------------------
 

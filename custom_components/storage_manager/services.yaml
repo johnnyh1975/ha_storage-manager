@@ -20,6 +20,7 @@ cleanup:
       selector:
         boolean:
 analyze_database:
+run_nightly:
 set_retention:
   fields:
     entity_id:

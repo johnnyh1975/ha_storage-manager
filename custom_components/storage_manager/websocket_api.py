@@ -167,6 +167,14 @@ async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     )
 
 
+async def _raw_rows(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_raw_rows(msg["entity_id"], msg["kind"], msg.get("before"), msg["limit"])
+
+
+async def _writers(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_writers(msg["start"], msg["end"])
+
+
 async def _folder_roots(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
     return await c.async_folder_roots()
 
@@ -393,6 +401,27 @@ def async_setup(hass: HomeAssistant) -> None:
         _preview,
     )
     _register(hass, {"type": f"{DOMAIN}/dead_entities"}, _dead_entities)
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/raw_rows",
+            # statistic ids of imports (source:id) are allowed besides entity ids
+            vol.Required("entity_id"): vol.All(str, vol.Length(min=3, max=255)),
+            vol.Required("kind"): vol.In(("states", "statistics", "statistics_short_term")),
+            vol.Optional("before"): vol.Coerce(float),
+            vol.Optional("limit", default=50): vol.All(int, vol.Range(min=1, max=200)),
+        },
+        _raw_rows,
+    )
+    _register(
+        hass,
+        {
+            "type": f"{DOMAIN}/writers",
+            vol.Required("start"): vol.Coerce(float),
+            vol.Required("end"): vol.Coerce(float),
+        },
+        _writers,
+    )
     _register(hass, {"type": f"{DOMAIN}/folder_roots"}, _folder_roots)
     folder = vol.All(str, vol.Length(min=1, max=4096))
     _register(hass, {"type": f"{DOMAIN}/folder_scan", vol.Required("root"): folder}, _folder_scan)

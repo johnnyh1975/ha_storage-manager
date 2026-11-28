@@ -9,6 +9,7 @@ import { translator, locale } from "./i18n.js";
 import { bytes, number, percent, relativeTime, dateTime } from "./format.js";
 
 const DOMAIN = "storage_manager";
+const TYPED_FROM = 25; // from this many entities the count must be typed
 const DONUT_COLORS = ["#03a9f4", "#ff9800", "#4caf50", "#e91e63", "#9c27b0", "#00bcd4", "#8bc34a", "#ffc107"];
 const TABS = ["overview", "database", "backups", "files", "settings"];
 const PAGE = 150;
@@ -61,6 +62,12 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _statsDraft: { state: true },
     _statsPlan: { state: true },
     _folders: { state: true },
+    _typedValue: { state: true },
+    _raw: { state: true },
+    _win: { state: true },
+    _winDrag: { state: true },
+    _facets: { state: true },
+    _facetsOpen: { state: true },
     _folder: { state: true },
     _overview: { state: true },
     _entities: { state: true },
@@ -210,8 +217,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         ${p.enable.length ? html`<p>${t("undo_enable", { n: p.enable.length })}</p>` : nothing}
         ${p.statistics_on.length ? html`<p>${t("undo_statistics_on", { n: p.statistics_on.length })}</p>` : nothing}
         ${p.undone ? html`<p class="muted small">${t("undo_again")}</p>` : nothing}
+        ${p.schema_changed && p.schema_ok ? html`<p class="muted small">${t("undo_schema_changed")}</p>` : nothing}
         <p class="muted small">${t("undo_note")}</p>
-        ${blocked ? html`<p class="warn-text">${t(blocked, { need: bytes(p.need, this.lang) })}</p>` : nothing}`,
+        ${blocked ? html`<p class="warn-text">${t(blocked, { need: bytes(p.need, this.lang), missing: (p.missing || []).join(", ") })}</p>` : nothing}`,
       confirm: t("undo_confirm"),
       disabled: !!blocked,
       action: () => this._runUndo(undoId),
@@ -410,8 +418,13 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     const canConvert = !!plan?.can_convert;
     this._repackConvert = true;
     const blockedSpace = preview.safety && !preview.safety.space.ok;
+    const entities =
+      (preview.orphans?.items?.length || 0) + (preview.dead?.items?.length || 0) +
+      (preview.unused_statistics?.items?.length || 0) + (preview.statistics?.items?.length || 0) +
+      Object.values(preview.statistics_age?.groups || {}).reduce((a, g) => a + (g.statistics || 0), 0);
     this._dialog = {
       title: this.t("confirm_title"),
+      typed: entities >= TYPED_FROM ? entities : 0,
       body: () => html`<p>${this.t("confirm_cleanup")}</p>
         <ul>${items.map((i) => html`<li>${i}</li>`)}</ul>
         ${preview.total ? html`<p><b>${this.t("confirm_total", { bytes: bytes(preview.total, this.lang) })}</b></p>` : nothing}
@@ -530,6 +543,18 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         if (wasExcluded) excluded[entityId] = false;
         if (value !== row.tier) retention[entityId] = value;
       }
+    }
+    const count = new Set([...Object.keys(retention), ...Object.keys(excluded)]).size;
+    if (count >= TYPED_FROM) {
+      this._dialog = {
+        title: this.t("confirm_title"),
+        body: html`<p>${this.t("apply_many", { n: count })}</p>`,
+        typed: count,
+        confirm: this.t("apply"),
+        danger: true,
+        action: () => this._sendApply({ retention, excluded, purge_now: true }),
+      };
+      return;
     }
     await this._sendApply({ retention, excluded, purge_now: true });
   }
@@ -686,7 +711,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
             ? html`<p class="muted">${t("history_empty")}</p>`
             : history.slice(0, 8).map(
                 (h) => html`<div class="list-row">
-                  <div>${t(`action_${h.action}`)}<div class="muted small">${dateTime(h.time, this.lang)}${(h.details?.targets || []).length
+                  <div>${t(`action_${h.action}`)}<div class="muted small">${dateTime(h.time, this.lang)}${h.details?.interrupted_action
+                    ? ` · ${t(`action_${h.details.interrupted_action}`)}`
+                    : ""}${(h.details?.targets || []).length
                     ? ` · ${h.details.targets.map((x) => t(`target_${x}`)).join(", ")}`
                     : ""}${h.details?.blocked ? ` · ${t("history_blocked")}` : ""}</div></div>
                   <div>${this._undoCell(h)}</div>
@@ -896,7 +923,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
           : nothing}
       </div>
 
-      ${this._renderExplorer()}
+      ${this._renderFolderExplorer()}
 
       ${scan.large_files.length
         ? html`<div class="card"><h2>${t("files_large")}</h2>
@@ -906,7 +933,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     `;
   }
 
-  _renderExplorer() {
+  _renderFolderExplorer() {
     const t = this.t;
     const roots = this._folders?.roots || [];
     if (!roots.length) return nothing;
@@ -1008,16 +1035,25 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
 
   _renderDialog() {
     const d = this._dialog;
-    if (!d) return nothing;
+    if (!d) {
+      this._typedValue = "";
+      return nothing;
+    }
     const close = () => (this._dialog = undefined);
     return html`<div class="scrim" @click=${(e) => e.target === e.currentTarget && close()}
       @keydown=${(e) => e.key === "Escape" && close()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label=${d.title}>
         <h3>${d.title}</h3>
         ${typeof d.body === "function" ? d.body() : d.body}
+        ${d.typed
+          ? html`<label class="typed">${this.t("typed_confirm", { n: d.typed })}
+              <input type="text" inputmode="numeric" .value=${this._typedValue || ""}
+                @input=${(e) => (this._typedValue = e.target.value.trim())} /></label>`
+          : nothing}
         <div class="actions">
           <button class="btn" @click=${close}>${this.t("cancel")}</button>
-          <button class=${d.danger ? "btn primary danger" : "btn primary"} autofocus ?disabled=${!!d.disabled}
+          <button class=${d.danger ? "btn primary danger" : "btn primary"} ?autofocus=${!d.typed}
+            ?disabled=${!!d.disabled || (d.typed && this._typedValue !== String(d.typed))}
             @click=${() => { close(); d.action(); }}>${d.confirm}</button>
         </div>
       </div>

@@ -68,6 +68,13 @@ def build(lang):
                 "Bei verwaisten Verläufen, Statistiken, toten Entitäten und Ereignissen werden nur die gelöschten Zeilen gesichert, und der Verlauf bietet „Rückgängig“. Geht das nicht (zu viele Zeilen, zu wenig Platz), wird wie bisher ein volles Backup erstellt. Der globale Purge nutzt immer das volle Backup.",
             ),
         ),
+        "nightly_run": (
+            t("Nightly maintenance at 04:37", "Nächtliche Pflege um 04:37"),
+            t(
+                "Applies the retention tiers and the long-term statistics limits every night. Turn it off to run the action storage_manager.run_nightly from your own automation instead.",
+                "Wendet jede Nacht die Aufbewahrungsstufen und die Grenzen der Langzeitstatistik an. Ausschalten, um stattdessen die Aktion storage_manager.run_nightly aus einer eigenen Automation zu starten.",
+            ),
+        ),
         "update_interval": (t("Update interval", "Aktualisierungsintervall"), None),
         "analysis_hour": (t("Daily database analysis at", "Tägliche Datenbankanalyse um"), None),
     }
@@ -278,6 +285,13 @@ def build(lang):
                         ),
                     },
                 },
+            },
+            "run_nightly": {
+                "name": t("Run the nightly maintenance", "Nächtliche Pflege ausführen"),
+                "description": t(
+                    "Apply the retention tiers and the long-term statistics limits now, as the nightly run does. Fires storage_manager_nightly_run when done.",
+                    "Wendet Aufbewahrungsstufen und Grenzen der Langzeitstatistik jetzt an, wie der nächtliche Lauf. Löst danach storage_manager_nightly_run aus.",
+                ),
             },
             "analyze_database": {
                 "name": t("Analyze database", "Datenbank analysieren"),

@@ -5,6 +5,46 @@ import { html, nothing, svg } from "lit";
 import { live } from "lit/directives/live.js";
 import { bytes, number, percent, relativeTime, dateTime } from "./format.js";
 
+const TM_COLORS = ["#4f9bd9", "#f0a04b", "#5db36b", "#d9667a", "#9a7bd1", "#3fb7b0", "#c2b74a", "#8d99a6"];
+
+// squarified treemap (Bruls et al.): rows of rectangles with good aspect ratios
+function squarify(items, x, y, w, h) {
+  const total = items.reduce((a, i) => a + i.v, 0);
+  if (!total || !items.length) return [];
+  const scale = (w * h) / total;
+  const nodes = items.map((i) => ({ ...i, a: i.v * scale }));
+  const out = [];
+  let rect = { x, y, w, h };
+  let row = [];
+  const worst = (r, side) => {
+    const s = r.reduce((a, n) => a + n.a, 0);
+    const max = Math.max(...r.map((n) => n.a));
+    const min = Math.min(...r.map((n) => n.a));
+    return Math.max((side * side * max) / (s * s), (s * s) / (side * side * min));
+  };
+  const layout = (r) => {
+    const s = r.reduce((a, n) => a + n.a, 0);
+    if (rect.w >= rect.h) {
+      const cw = s / rect.h;
+      let cy = rect.y;
+      for (const n of r) { const nh = n.a / cw; out.push({ ...n, x: rect.x, y: cy, w: cw, h: nh }); cy += nh; }
+      rect = { x: rect.x + cw, y: rect.y, w: rect.w - cw, h: rect.h };
+    } else {
+      const ch = s / rect.w;
+      let cx = rect.x;
+      for (const n of r) { const nw = n.a / ch; out.push({ ...n, x: cx, y: rect.y, w: nw, h: ch }); cx += nw; }
+      rect = { x: rect.x, y: rect.y + ch, w: rect.w, h: rect.h - ch };
+    }
+  };
+  for (const n of nodes) {
+    const side = Math.min(rect.w, rect.h);
+    if (!row.length || worst([...row, n], side) <= worst(row, side)) row.push(n);
+    else { layout(row); row = [n]; }
+  }
+  if (row.length) layout(row);
+  return out;
+}
+
 export const TIER_ORDER = ["default", "7", "3", "1", "drop", "excluded"];
 export const TIER_DAYS = { "7": 7, "3": 3, "1": 1, drop: 0, excluded: 0 };
 const ENGINES = { sqlite: "SQLite", mysql: "MariaDB/MySQL", postgresql: "PostgreSQL" };
@@ -163,6 +203,7 @@ export const DatabaseSection = (Base) =>
           </div>
           ${this._renderEffect(ent)}
         </div>
+        ${this._renderWindowResult()}
 
         ${!ent
           ? html`<div class="card"><div class="center"><span class="spinner"></span></div></div>`
@@ -265,6 +306,7 @@ export const DatabaseSection = (Base) =>
           <ul>${items.slice(0, 30).map((i) => html`<li>${i.name} <span class="muted small">${i.entity_id}</span></li>`)}
             ${items.length > 30 ? html`<li class="muted">${t("more_n", { n: items.length - 30 })}</li>` : nothing}</ul>`,
         confirm: t("dead_disable", { n: items.length }),
+        typed: items.length >= 25 ? items.length : 0,
         action: () => this._disableDead(items.map((i) => i.entity_id)),
       };
     }
@@ -616,7 +658,55 @@ export const DatabaseSection = (Base) =>
         <h2>${t("effect_title")}</h2>
         ${samples.length >= 2 ? this._sizeChart(samples, changes) : html`<p class="muted small">${t("effect_need_samples")}</p>`}
         <p class="small" style="margin:8px 0 0">${summary}</p>
+        ${this._renderWindow()}
         ${samples.length >= 2 && live.length < 2 ? html`<p class="muted small" style="margin:4px 0 0">${t("effect_data_soon")}</p>` : nothing}
+      </div>`;
+    }
+
+    async _loadWindow(start, end) {
+      this._win = { start, end, loading: true };
+      try {
+        this._win = { ...(await this._ws("writers", { start, end })), loading: false };
+      } catch (err) {
+        this._win = undefined;
+        this._showToast(this.t("error", { msg: err.message }));
+      }
+    }
+
+    _renderWindow() {
+      const t = this.t;
+      const now = Date.now() / 1000;
+      const quick = [["24h", 86400], ["7d", 7 * 86400]];
+      return html`<div class="window-bar">
+          <span class="muted small">${t("window_hint")}</span>
+          <span class="spacer"></span>
+          ${quick.map(([k, s]) => html`<button class="chip" @click=${() => this._loadWindow(now - s, now)}>${t(`window_${k}`)}</button>`)}
+        </div>`;
+    }
+
+    _renderWindowResult() {
+      const t = this.t;
+      const w = this._win;
+      if (!w) return nothing;
+      const row = (label, sub, rows, size) => html`<div class="list-row">
+          <div>${label}${sub ? html`<div class="muted small">${sub}</div>` : nothing}</div>
+          <div class="num small">${t("window_rows", { n: number(rows, this.lang) })}</div>
+          <div class="num"><b>${size ? bytes(size, this.lang) : "–"}</b></div></div>`;
+      return html`<div class="card window-result">
+        <div class="row">
+          <h2 style="margin:0">${t("window_title", { from: dateTime(w.start, this.lang), to: dateTime(w.end, this.lang) })}</h2>
+          <span class="spacer"></span>
+          <button class="btn" @click=${() => (this._win = undefined)}>${t("window_close")}</button>
+        </div>
+        ${w.loading
+          ? html`<div class="center"><span class="spinner"></span></div>`
+          : html`
+            ${w.complete_from && w.start < w.complete_from ? html`<p class="muted small">${t("window_partial", { date: dateTime(w.complete_from, this.lang) })}</p>` : nothing}
+            ${w.states.length === 0 && w.events.length === 0 ? html`<p class="muted">${t("window_none")}</p>` : nothing}
+            ${w.states.length ? html`<h4>${t("window_entities")}</h4>` : nothing}
+            ${w.states.map((x) => row(html`<button class="linklike" @click=${() => this._openDetail(x.entity_id)}>${x.name}</button>`, x.entity_id, x.rows, x.bytes))}
+            ${w.events.length ? html`<h4>${t("window_events")}</h4>` : nothing}
+            ${w.events.map((x) => row(html`<code>${x.event_type}</code>`, null, x.rows, x.bytes))}`}
       </div>`;
     }
 
@@ -644,7 +734,19 @@ export const DatabaseSection = (Base) =>
       const sx = (x) => left + ((x - x0) / (x1 - x0)) * (w - left);
       const sy = (y) => h - ((y - y0) / (y1 - y0)) * h;
       const path = (pts) => pts.map((p, i) => `${i ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ");
-      return html`<svg class="chart" viewBox="0 0 ${w} ${h + 30}" role="img" aria-label=${this.t("effect_title")}>
+      const toTime = (ev) => {
+        const box = ev.currentTarget.getBoundingClientRect();
+        const x = ((ev.clientX - box.left) / box.width) * w;
+        return x0 + (Math.min(Math.max(x, left), w) - left) / (w - left) * (x1 - x0);
+      };
+      const clamp = (v) => Math.min(Math.max(v, x0), x1);
+      const rawSel = this._winDrag || (this._win ? [this._win.start, this._win.end] : null);
+      const sel = rawSel ? rawSel.map(clamp) : null;
+      return html`<svg class="chart window" viewBox="0 0 ${w} ${h + 30}" role="img" aria-label=${this.t("effect_title")}
+        @pointerdown=${(ev) => { ev.currentTarget.setPointerCapture?.(ev.pointerId); const a = toTime(ev); this._winDrag = [a, a]; }}
+        @pointermove=${(ev) => { if (this._winDrag) this._winDrag = [this._winDrag[0], toTime(ev)]; }}
+        @pointerup=${() => { const d = this._winDrag; this._winDrag = null; if (d && Math.abs(d[1] - d[0]) > 60) this._loadWindow(Math.min(...d), Math.max(...d)); }}>
+        ${sel ? svg`<rect x=${sx(Math.min(...sel))} y="0" width=${Math.max(Math.abs(sx(sel[1]) - sx(sel[0])), 1)} height=${h} fill="var(--primary-color)" opacity="0.15"></rect>` : nothing}
         ${svg`<line x1=${left} x2=${w} y1="0" y2="0" stroke="var(--divider-color)"></line>
           <line x1=${left} x2=${w} y1=${h} y2=${h} stroke="var(--divider-color)"></line>
           <text x=${left - 4} y="8" font-size="9" text-anchor="end" fill="var(--secondary-text-color)">${bytes(y1, this.lang)}</text>
@@ -720,7 +822,7 @@ export const DatabaseSection = (Base) =>
       const groups = this._groups(ent);
       const open = this._openGroups || new Set();
       const total = ent.total_bytes || 1;
-      return html`${groups.map((g) => {
+      return html`${this._treemap(groups, total)}${groups.map((g) => {
         const isOpen = open.has(g.key);
         const max = g.rows.reduce((m, r) => Math.max(m, r.est_bytes), 1);
         return html`<div class="group">
@@ -737,12 +839,40 @@ export const DatabaseSection = (Base) =>
             ${g.advice.length
               ? html`<button class="btn" @click=${() => this._accept(g.advice)}>${t("group_accept", { n: g.advice.length, bytes: bytes(g.saving, this.lang) })}</button>`
               : nothing}
+            <button class="linklike small" @click=${() => this._drillIntegration(g.key)}>${t("group_list")}</button>
             <span class="num"><b>${bytes(g.bytes, this.lang)}</b></span>
           </div>
           <div class="bar"><div style="width:${Math.max((g.bytes / total) * 100, 0.5)}%;background:var(--sm-c1)"></div></div>
           ${isOpen ? this._table(g.rows.slice(0, PAGE), max) : nothing}
         </div>`;
       })}`;
+    }
+
+    _drillIntegration(key) {
+      this._facets = { integration: key || "" };
+      this._search = "";
+      this._domain = "";
+      this._view = "all";
+      this._limit = PAGE;
+    }
+
+    _treemap(groups, total) {
+      const items = groups.filter((g) => g.bytes > 0).slice(0, 24);
+      if (items.length < 2) return nothing;
+      const W = 600;
+      const H = 220;
+      const rects = squarify(items.map((g) => ({ g, v: g.bytes })), 0, 0, W, H);
+      return html`<svg class="treemap" viewBox="0 0 ${W} ${H}" role="img" aria-label=${this.t("treemap_label")}>
+        ${rects.map((r, i) => svg`<g class="tm" @click=${() => this._drillIntegration(r.g.key)}>
+          <rect x=${r.x + 1} y=${r.y + 1} width=${Math.max(r.w - 2, 0)} height=${Math.max(r.h - 2, 0)} rx="4"
+            fill=${TM_COLORS[i % TM_COLORS.length]}><title>${this._integrationName(r.g.key)}: ${bytes(r.g.bytes, this.lang)} (${percent(r.g.bytes / total, this.lang)})</title></rect>
+          ${r.w > 60 && r.h > 28
+            ? svg`<text x=${r.x + 7} y=${r.y + 17} class="tm-label">${this._integrationName(r.g.key)}</text>
+                <text x=${r.x + 7} y=${r.y + 31} class="tm-sub">${bytes(r.g.bytes, this.lang)}</text>`
+            : nothing}
+        </g>`)}
+      </svg>
+      <p class="muted small" style="margin-top:4px">${this.t("treemap_hint")}</p>`;
     }
 
     _filteredRows(rows) {
@@ -752,12 +882,57 @@ export const DatabaseSection = (Base) =>
         if (this._onlyOrphans && !r.orphan) return false;
         if (this._onlyChanged && !this._draft.has(r.entity_id) && r.tier === "default" && !r.excluded) return false;
         if (this._onlyAdvice && !r.advice?.action) return false;
+        const f = this._facets || {};
+        if (f.integration && (r.integration || r.domain) !== f.integration) return false;
+        if (f.device && (r.device || "") !== f.device) return false;
+        if (f.used && r.used !== f.used) return false;
+        if (f.defined && r.defined_in !== f.defined) return false;
+        if (f.age) {
+          const limit = Date.now() / 1000 - Number(f.age) * 86400;
+          if (r.newest && r.newest >= limit) return false;
+          if (!r.newest && !r.rows) return false;
+        }
         if (!q) return true;
         return [r.entity_id, r.name, r.integration, r.area, r.device].some((v) => (v || "").toLowerCase().includes(q));
       });
       if (this._sort === "rate") out = [...out].sort((a, b) => b.rows_24h - a.rows_24h);
       else if (this._sort === "name") out = [...out].sort((a, b) => (a.name || "").localeCompare(b.name || "", this.lang));
       return out;
+    }
+
+    _renderFacets(ent, rows) {
+      const t = this.t;
+      const f = this._facets || {};
+      const set = (key, value) => { this._facets = { ...f, [key]: value }; this._limit = PAGE; };
+      const keyOf = (r) => r.integration || r.domain;
+      const integrations = [...new Set(ent.rows.map(keyOf))].sort();
+      const devices = [...new Set(ent.rows.filter((r) => !f.integration || keyOf(r) === f.integration).map((r) => r.device).filter(Boolean))].sort((x, y) => x.localeCompare(y, this.lang));
+      const active = Object.values(f).filter(Boolean).length;
+      const open = this._facetsOpen || active > 0;
+      const sel = (key, label, options) => html`<select aria-label=${label} @change=${(e) => set(key, e.target.value)}>
+          <option value="" ?selected=${!f[key]}>${label}</option>
+          ${options.map(([v, l]) => html`<option value=${v} ?selected=${f[key] === v}>${l}</option>`)}
+        </select>`;
+      return html`
+        ${open
+          ? html`<div class="filters facets">
+              ${sel("integration", t("facet_integration"), integrations.map((i) => [i, this._integrationName(i)]))}
+              ${sel("device", t("facet_device"), devices.map((d) => [d, d]))}
+              ${sel("used", t("facet_used"), ["yes", "no", "dynamic"].map((v) => [v, t(`facet_used_${v}`)]))}
+              ${sel("defined", t("facet_defined"), ["ui", "yaml", "yaml_no_id", "gone"].map((v) => [v, t(`facet_defined_${v}`)]))}
+              ${sel("age", t("facet_age"), [["7", t("facet_age_7")], ["30", t("facet_age_30")], ["180", t("facet_age_180")]])}
+            </div>`
+          : nothing}
+        <div class="facet-bar small">
+          <span class="muted">${t("facet_matches", { n: number(rows.length, this.lang) })}</span>
+          ${rows.length && rows.length !== ent.rows.length && !rows.every((r) => this._selected.has(r.entity_id))
+            ? html`<button class="linklike" @click=${() => (this._selected = new Set([...this._selected, ...rows.map((r) => r.entity_id)]))}>${t("select_matching", { n: number(rows.length, this.lang) })}</button>`
+            : nothing}
+          <span class="spacer"></span>
+          ${active
+            ? html`<button class="linklike" @click=${() => { this._facets = {}; this._limit = PAGE; }}>${t("facet_clear", { n: active })}</button>`
+            : html`<button class="linklike" aria-expanded=${open ? "true" : "false"} @click=${() => (this._facetsOpen = !open)}>${t(open ? "facet_less" : "facet_more")}</button>`}
+        </div>`;
     }
 
     _renderAll(ent) {
@@ -784,6 +959,7 @@ export const DatabaseSection = (Base) =>
           <button class="chip" aria-pressed=${this._onlyOrphans ? "true" : "false"}
             @click=${() => (this._onlyOrphans = !this._onlyOrphans)}>${t("filter_orphans")}</button>
         </div>
+        ${this._renderFacets(ent, rows)}
         ${this._selected.size
           ? html`<div class="banner info" style="margin-bottom:8px">
               <div class="txt">${t("selected", { n: this._selected.size })}</div>
@@ -1163,7 +1339,70 @@ export const DatabaseSection = (Base) =>
         <h4>${t("col_retention")}</h4>
         ${row ? this._tierSelect(row, (v) => this._setValue([row], v)) : nothing}
         <p class="small">${t(`impact_${value}`, { days: TIER_DAYS[value] ?? d.keep_days })}</p>
+        ${this._renderInspector(d.entity_id)}
       `;
+    }
+
+    // ------------------------------------------------------- inspector
+
+    async _loadRaw(entityId, kind, more = false) {
+      const prev = this._raw?.entity_id === entityId && this._raw.kind === kind ? this._raw : null;
+      this._raw = { entity_id: entityId, kind, rows: more && prev ? prev.rows : [], next: null, loading: true };
+      try {
+        const res = await this._ws("raw_rows", {
+          entity_id: entityId,
+          kind,
+          ...(more && prev?.next ? { before: prev.next } : {}),
+          limit: 50,
+        });
+        this._raw = { entity_id: entityId, kind, rows: [...(more && prev ? prev.rows : []), ...res.rows], next: res.next, loading: false };
+      } catch (err) {
+        this._raw = undefined;
+        this._showToast(this.t("error", { msg: err.message }));
+      }
+    }
+
+    _renderInspector(entityId) {
+      const t = this.t;
+      const r = this._raw?.entity_id === entityId ? this._raw : null;
+      const hasStats = (this._rowById(entityId)?.stat_rows || 0) > 0;
+      const kinds = hasStats ? ["states", "statistics", "statistics_short_term"] : ["states"];
+      const val = (v) => (v == null ? "–" : typeof v === "number" ? number(Math.round(v * 1000) / 1000, this.lang) : v);
+      return html`<details class="inspector" @toggle=${(e) => { if (e.target.open && !r) this._loadRaw(entityId, "states"); }}>
+        <summary><h4>${t("raw_title")}</h4></summary>
+        <p class="muted small" style="margin-top:0">${t("raw_hint")}</p>
+        ${kinds.length > 1
+          ? html`<div class="segmented" role="tablist">${kinds.map(
+              (k) => html`<button role="tab" aria-selected=${r?.kind === k ? "true" : "false"}
+                @click=${() => this._loadRaw(entityId, k)}>${t(`raw_${k}`)}</button>`
+            )}</div>`
+          : nothing}
+        ${r
+          ? html`${r.rows.length === 0 && !r.loading ? html`<p class="muted small">${t("raw_empty")}</p>` : nothing}
+              ${r.kind === "states"
+                ? html`<div class="raw-list">${r.rows.map(
+                    (x) => html`<div class="raw-row">
+                      <span class="muted small">${dateTime(x.ts, this.lang, true)}</span>
+                      <b>${x.state ?? "–"}</b>
+                      ${x.attributes
+                        ? html`<details><summary class="small muted">${t("raw_attributes", { bytes: bytes(x.attributes.length, this.lang) })}</summary><pre>${this._prettyJson(x.attributes)}</pre></details>`
+                        : nothing}
+                    </div>`
+                  )}</div>`
+                : html`<div class="table-scroll"><table class="raw-table"><thead><tr><th>${t("raw_start")}</th><th class="num">mean</th><th class="num">min</th><th class="num">max</th><th class="num">state</th><th class="num">sum</th></tr></thead>
+                    <tbody>${r.rows.map((x) => html`<tr><td>${dateTime(x.ts, this.lang)}</td><td class="num">${val(x.mean)}</td><td class="num">${val(x.min)}</td><td class="num">${val(x.max)}</td><td class="num">${val(x.state)}</td><td class="num">${val(x.sum)}</td></tr>`)}</tbody></table></div>`}
+              ${r.loading ? html`<div class="center"><span class="spinner"></span></div>` : nothing}
+              ${r.next && !r.loading ? html`<button class="btn" @click=${() => this._loadRaw(entityId, r.kind, true)}>${t("raw_more")}</button>` : nothing}`
+          : nothing}
+      </details>`;
+    }
+
+    _prettyJson(text) {
+      try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+      } catch (err) {
+        return text;
+      }
     }
 
     // ------------------------------------------------ attribute template
