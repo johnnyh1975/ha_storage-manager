@@ -10,7 +10,7 @@ from typing import Any, Final
 
 DOMAIN: Final = "storage_manager"
 NAME: Final = "Storage Manager"
-VERSION: Final = "0.9.0"
+VERSION: Final = "0.10.0"
 
 STORAGE_KEY: Final = f"{DOMAIN}.data"
 STORAGE_VERSION: Final = 1
@@ -32,6 +32,7 @@ CONF_KEEP_MONTHLY: Final = "keep_monthly"
 CONF_REQUIRE_OFFSITE: Final = "require_offsite"
 CONF_ANALYSIS_HOUR: Final = "analysis_hour"
 CONF_BACKUP_BEFORE_DELETE: Final = "backup_before_delete"
+CONF_TARGETED_BACKUP: Final = "targeted_backup"
 
 DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_UPDATE_INTERVAL: 15,
@@ -44,6 +45,7 @@ DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_REQUIRE_OFFSITE: True,
     CONF_ANALYSIS_HOUR: 3,
     CONF_BACKUP_BEFORE_DELETE: True,
+    CONF_TARGETED_BACKUP: True,
 }
 
 # Retention tiers. Value = keep_days passed to recorder.purge_entities.

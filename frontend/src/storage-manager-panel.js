@@ -177,6 +177,59 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     }
   }
 
+  _undoCell(h) {
+    const u = h.details?.undo;
+    if (!u || typeof u !== "object") return nothing;
+    if (h.details.undone) return html`<span class="muted small" title=${dateTime(h.details.undone, this.lang)}>${this.t("undo_done_at")}</span>`;
+    if (!(this._overview?.undo_available || []).includes(u.id)) return html`<span class="muted small">${this.t("undo_expired")}</span>`;
+    return html`<button class="btn" ?disabled=${!!this._working} @click=${() => this._previewUndo(u.id)}>${this.t("undo_button")}</button>`;
+  }
+
+  async _previewUndo(undoId) {
+    const t = this.t;
+    let p;
+    try {
+      p = await this._ws("undo_preview", { undo_id: undoId });
+    } catch (err) {
+      const key = `undo_error_${(err.message || "").replace("undo_", "")}`;
+      this._showToast(t(key) !== key ? t(key) : t("error", { msg: err.message }));
+      return;
+    }
+    const rows = Object.entries(p.rows).filter(([, n]) => n);
+    const blocked = !p.schema_ok ? "undo_error_schema" : p.free < p.need ? "undo_error_no_space" : null;
+    this._dialog = {
+      title: t("undo_title"),
+      body: html`<p>${t("undo_body", { date: dateTime(p.created, this.lang) })}</p>
+        <ul>${rows.map(([k, n]) => html`<li>${t(`undo_rows_${k}`, { n: number(n, this.lang) })}</li>`)}</ul>
+        ${p.enable.length ? html`<p>${t("undo_enable", { n: p.enable.length })}</p>` : nothing}
+        ${p.statistics_on.length ? html`<p>${t("undo_statistics_on", { n: p.statistics_on.length })}</p>` : nothing}
+        ${p.undone ? html`<p class="muted small">${t("undo_again")}</p>` : nothing}
+        <p class="muted small">${t("undo_note")}</p>
+        ${blocked ? html`<p class="warn-text">${t(blocked, { need: bytes(p.need, this.lang) })}</p>` : nothing}`,
+      confirm: t("undo_confirm"),
+      disabled: !!blocked,
+      action: () => this._runUndo(undoId),
+    };
+  }
+
+  async _runUndo(undoId) {
+    const t = this.t;
+    this._working = "undo";
+    try {
+      const res = await this._ws("undo", { undo_id: undoId });
+      const added = Object.values(res.added).reduce((a, b) => a + b, 0);
+      this._showToast(t("undo_success", { n: number(added, this.lang) }));
+      await this._loadOverview();
+      if (this._unused) await this._loadUnused();
+      if (this._dead) await this._loadDead();
+    } catch (err) {
+      const key = `undo_error_${(err.message || "").replace("undo_", "")}`;
+      this._showToast(t(key) !== key ? t(key) : t("error", { msg: err.message }));
+    } finally {
+      this._working = null;
+    }
+  }
+
   async _loadDead() {
     try {
       this._dead = await this._ws("dead_entities");
@@ -304,7 +357,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (result.blocked) {
         this._handleBlocked(result.blocked, () => this._clean(targets, { ...extra, skip_backup: true }));
       } else {
-        const backup = result.backup ? ` ${this.t("backup_used", { name: result.backup.name })}` : "";
+        const backup = result.undo
+          ? ` ${this.t("undo_saved")}`
+          : result.backup ? ` ${this.t("backup_used", { name: result.backup.name })}` : "";
         this._showToast(result.errors?.length ? `${msg}${backup} ${result.errors.join("; ")}` : `${msg}${backup}`);
       }
       await this._loadOverview();
@@ -555,7 +610,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
                   <div>${t(`action_${h.action}`)}<div class="muted small">${dateTime(h.time, this.lang)}${(h.details?.targets || []).length
                     ? ` · ${h.details.targets.map((x) => t(`target_${x}`)).join(", ")}`
                     : ""}${h.details?.blocked ? ` · ${t("history_blocked")}` : ""}</div></div>
-                  <div></div>
+                  <div>${this._undoCell(h)}</div>
                   <div class="num"><b>${bytes(h.freed_bytes, this.lang)}</b></div>
                 </div>`
               )}

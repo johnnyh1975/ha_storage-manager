@@ -43,6 +43,7 @@ from . import (
     repack,
     safety,
     template_builder,
+    undo,
 )
 from . import backups as backup_mod
 from . import usage as usage_mod
@@ -54,6 +55,7 @@ from .const import (
     CONF_KEEP_MONTHLY,
     CONF_KEEP_WEEKLY,
     CONF_REQUIRE_OFFSITE,
+    CONF_TARGETED_BACKUP,
     CONF_UPDATE_INTERVAL,
     DEFAULT_OPTIONS,
     DOMAIN,
@@ -91,7 +93,10 @@ ALL_CLEAN_TARGETS = (
 )
 # targets that delete rows from the database and run the safety chain first
 DB_DELETE_TARGETS = ("orphans", "statistics", "unused_statistics", "events", "dead", "purge")
-DEAD_DAYS = 7  # unavailable for this long without a real value counts as dead
+DEAD_DAYS = 7
+UNDO_SPACE_MARGIN = 64 * 1024 * 1024
+# purge_entities is queued: keep some rows more in the undo file than it deletes
+UNDO_CUTOFF_MARGIN = 3600  # unavailable for this long without a real value counts as dead
 STALE_IMPORT_DAYS = 90  # imported statistics without a new row for this long
 # event types the logbook shows: deleting them removes logbook entries
 LOGBOOK_EVENT_TYPES = frozenset(
@@ -641,11 +646,13 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "packages_missing": False,
             "blocked": None,
             "backup": None,
+            "undo": None,
         }
         if not await self._async_sync_package():
             result["packages_missing"] = True
 
         by_tier: dict[int, list[str]] = {}
+        undo_info: dict[str, Any] | None = None
         if purge_now:
             newly_excluded = [e for e, f in excluded.items() if f]
             for entity_id, tier in retention.items():
@@ -658,11 +665,24 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if self._lock.locked():
                         raise HomeAssistantError("Another cleanup is running")
                     async with self._lock:
+                        planned = undo.AVAILABLE and bool(self.options[CONF_TARGETED_BACKUP])
+                        estimate = self._estimate_purge(by_tier)
                         chain = await self._async_safety(
-                            skip_backup=skip_backup,
-                            delete_bytes=self._estimate_purge(by_tier),
+                            skip_backup=skip_backup or planned,
+                            delete_bytes=estimate,
                         )
+                        if planned:
+                            spec = undo.Spec()
+                            cutoff = time.time() + UNDO_CUTOFF_MARGIN
+                            for keep_days, ids in by_tier.items():
+                                before = None if keep_days == 0 else cutoff - keep_days * 86400
+                                spec.states.update(dict.fromkeys(ids, before))
+                            undo_info = await self._async_protect(
+                                spec, estimate, skip_backup, chain
+                            )
+                        self._set_busy(None)
                     result["backup"] = chain.get("backup")
+                    result["undo"] = undo_info
                 except safety.SafetyError as err:
                     result["blocked"] = {"reason": err.reason, "detail": err.detail}
                     self.store.log(
@@ -682,6 +702,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
                 if result["backup"]:
                     details["backup"] = result["backup"]["name"]
+                if result.get("undo"):
+                    details["undo"] = result["undo"]
                 self.store.log("purge_entities", estimate, details)
             if any(by_tier.values()):
                 self._schedule_reanalysis()
@@ -1062,6 +1084,178 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._dead = {"count": len(items), "bytes": dead["bytes"]}
             self._dead_key = key
         return self._dead
+
+    # ------------------------------------------------------------------
+    # targeted backup and undo
+    # ------------------------------------------------------------------
+
+    def _undo_planned(self, db_targets: list[str]) -> bool:
+        """Whether a targeted backup replaces the full one for these targets."""
+        return (
+            undo.AVAILABLE
+            and bool(self.options[CONF_TARGETED_BACKUP])
+            and bool(db_targets)
+            and set(db_targets) <= undo.UNDO_TARGETS
+        )
+
+    async def _undo_spec(
+        self,
+        db_targets: list[str],
+        entity_ids: list[str] | None,
+        statistic_ids: list[str] | None,
+        event_types: list[str] | None,
+    ) -> undo.Spec:
+        """The rows the targets will delete, chosen as the cleanup chooses them."""
+        spec = undo.Spec()
+        statistics: set[str] = set()
+        if "orphans" in db_targets:
+            ids = self.orphans()["entities"]
+            if entity_ids and "dead" not in db_targets:
+                ids = entity_ids
+            spec.states.update(dict.fromkeys(ids))
+        if "statistics" in db_targets:
+            statistics.update(statistic_ids or self.orphans()["statistics"])
+        if "unused_statistics" in db_targets:
+            statistics.update(
+                i["statistic_id"] for i in await self._unused_selection(statistic_ids)
+            )
+        if "dead" in db_targets:
+            dead = [i["entity_id"] for i in await self._dead_selection(entity_ids)]
+            spec.states.update(dict.fromkeys(dead))
+            statistics.update(dead)
+        if "events" in db_targets:
+            spec.event_types = [e["event_type"] for e in self._events_selection(event_types)]
+        spec.statistics = sorted(statistics)
+        return spec
+
+    async def _async_protect(
+        self,
+        spec: undo.Spec,
+        delete_bytes: int,
+        skip_backup: bool,
+        safety_result: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Write the targeted backup; fall back to the full backup if it fails.
+
+        Raises safety.SafetyError when neither is possible but a backup is
+        required, so the deletion does not run.
+        """
+        if spec.empty():
+            return None
+        try:
+            return await self._async_export_undo(spec, delete_bytes)
+        except undo.UndoError as err:
+            _LOGGER.warning("Targeted backup not possible (%s), using the full backup", err)
+        except Exception:
+            _LOGGER.exception("Targeted backup failed, using the full backup")
+        if self.options[CONF_BACKUP_BEFORE_DELETE] and not skip_backup:
+            self._set_busy("safety_backup")
+            backup = await safety.async_recent_backup(
+                self.hass
+            ) or await safety.async_create_backup(self.hass)
+            safety_result["backup"] = backup
+        return None
+
+    async def _async_export_undo(self, spec: undo.Spec, delete_bytes: int) -> dict[str, Any]:
+        hass = self.hass
+        config_dir = hass.config.config_dir
+        await self.async_refresh()
+        free = int(self.data["disk"]["free"])
+        need = safety.work_space(self._live_bytes(), delete_bytes) + (
+            delete_bytes // 2 + UNDO_SPACE_MARGIN
+        )
+        if free < need:
+            raise undo.UndoError("no_space", str(need))
+        self._set_busy("undo_export")
+        rows = int(await database.async_read(hass, lambda s: undo.count(s, spec)))
+        if rows > undo.MAX_ROWS:
+            raise undo.UndoError("too_many", str(rows))
+        undo_id = undo.new_id()
+        path = undo.path_for(config_dir, undo_id)
+        info: dict[str, Any] = await database.async_read(hass, lambda s: undo.export(s, path, spec))
+        await hass.async_add_executor_job(undo.prune, config_dir)
+        self.invalidate("files")
+        return {"id": undo_id, "bytes": info["bytes"], "rows": info["rows"]}
+
+    async def async_prune_undo(self) -> None:
+        """Remove undo files past their age or the size limit (daily)."""
+        removed = await self.hass.async_add_executor_job(undo.prune, self.hass.config.config_dir)
+        if removed:
+            _LOGGER.debug("Removed undo files %s", removed)
+            self.invalidate("files")
+
+    async def async_undo_available(self) -> list[str]:
+        """Undo ids whose file is still there."""
+        return sorted(
+            await self.hass.async_add_executor_job(undo.existing, self.hass.config.config_dir)
+        )
+
+    def _undo_entry(self, undo_id: str) -> dict[str, Any] | None:
+        for entry in reversed(self.store.data.history):
+            info = (entry.get("details") or {}).get("undo")
+            if isinstance(info, dict) and info.get("id") == undo_id:
+                found: dict[str, Any] = entry
+                return found
+        return None
+
+    async def async_undo_preview(self, undo_id: str) -> dict[str, Any]:
+        """What restoring would bring back and undo."""
+        path = undo.path_for(self.hass.config.config_dir, undo_id)
+        try:
+            info: dict[str, Any] = await self.hass.async_add_executor_job(undo.describe, path)
+        except undo.UndoError as err:
+            raise HomeAssistantError(f"undo_{err.reason}") from err
+        entry = self._undo_entry(undo_id)
+        deleted = ((entry or {}).get("details") or {}).get("deleted") or {}
+        info["enable"] = [
+            e for e in deleted.get("dead") or [] if e in self.store.data.disabled_dead
+        ]
+        info["statistics_on"] = [
+            e for e in deleted.get("statistics_off") or [] if e in self.store.data.stats_off
+        ]
+        info["undone"] = ((entry or {}).get("details") or {}).get("undone")
+        info["need"] = info["bytes"] * 10 + UNDO_SPACE_MARGIN
+        info["free"] = int(self.data["disk"]["free"])
+        return info
+
+    async def async_undo(self, undo_id: str) -> dict[str, Any]:
+        """Bring the rows of a cleanup back and revert what it switched off."""
+        preview = await self.async_undo_preview(undo_id)
+        if not preview["schema_ok"]:
+            raise HomeAssistantError("undo_schema")
+        if preview["free"] < preview["need"]:
+            raise HomeAssistantError("undo_no_space")
+        if self._lock.locked():
+            raise HomeAssistantError("Another cleanup is running")
+        path = undo.path_for(self.hass.config.config_dir, undo_id)
+        result: dict[str, Any] = {}
+
+        def job(instance: Any) -> None:
+            result.update(database.run_write(instance, lambda s: undo.restore(s, path)))
+            undo.reset_caches(instance)
+
+        async with self._lock:
+            self._set_busy("undo")
+            try:
+                if not await repack.async_run_on_recorder(self.hass, job):  # pragma: no cover
+                    raise HomeAssistantError("undo_unavailable")
+            finally:
+                self._set_busy(None)
+        if preview["enable"]:
+            await self.async_enable_dead(preview["enable"])
+        if preview["statistics_on"]:
+            await self.async_statistics_on(preview["statistics_on"])
+        entry = self._undo_entry(undo_id)
+        if entry is not None and not entry["details"].get("undone"):
+            entry["details"]["undone"] = dt_util.utcnow().isoformat()
+            # the space is taken again: the running total should say so
+            data = self.store.data
+            data.freed_total = max(data.freed_total - int(entry.get("freed_bytes") or 0), 0)
+        self.store.log("undo", 0, {"undo_id": undo_id, **result})
+        self._schedule_reanalysis()
+        self.invalidate("breakdown")
+        await self.async_refresh()
+        return {**result, "enabled": preview["enable"], "statistics_on": preview["statistics_on"]}
 
     # ------------------------------------------------------------------
     # orphans
@@ -1821,6 +2015,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             preview["safety"] = await self.async_safety_plan(
                 delete_bytes=sum(int((preview.get(t) or {}).get("bytes") or 0) for t in db_targets),
                 backup_needed=_needs_backup(db_targets),
+                undo=self._undo_planned(db_targets),
             )
         return preview
 
@@ -1851,9 +2046,27 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return int(self.data["database"]["size"] or 0)
 
     async def async_safety_plan(
+        self, *, delete_bytes: int = 0, backup_needed: bool = True, undo: bool = False
+    ) -> dict[str, Any]:
+        """Preview of the safety chain for the current state.
+
+        With a targeted backup the full backup is only the fallback: the plan
+        shows the targeted one and how much space it needs.
+        """
+        plan = await self._safety_plan(
+            delete_bytes=delete_bytes, backup_needed=backup_needed and not undo
+        )
+        if undo:
+            plan["backup"] = {
+                "action": "undo",
+                "fallback": bool(self.options[CONF_BACKUP_BEFORE_DELETE]),
+            }
+            plan["space"]["undo"] = delete_bytes // 2 + UNDO_SPACE_MARGIN
+        return plan
+
+    async def _safety_plan(
         self, *, delete_bytes: int = 0, backup_needed: bool = True
     ) -> dict[str, Any]:
-        """Preview of the safety chain for the current state."""
         return await safety.async_plan(
             self.hass,
             path=database.sqlite_path(self.hass),
@@ -2007,6 +2220,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             deleted: dict[str, Any] = {}
             blocked: dict[str, str] | None = None
             safety_result: dict[str, Any] | None = None
+            undo_info: dict[str, Any] | None = None
             try:
                 await self._clean_outside_database(targets, hog_keys, results, errors)
                 db_targets = [t for t in DB_DELETE_TARGETS if t in targets]
@@ -2027,11 +2241,19 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     int(e.get("est_bytes") or 0)
                                     for e in self._events_selection(event_types)
                                 )
+                            planned = self._undo_planned(db_targets)
                             safety_result = await self._async_safety(
-                                skip_backup=skip_backup,
+                                skip_backup=skip_backup or planned,
                                 delete_bytes=estimate,
                                 backup_needed=_needs_backup(db_targets),
                             )
+                            if planned:
+                                spec = await self._undo_spec(
+                                    db_targets, entity_ids, statistic_ids, event_types
+                                )
+                                undo_info = await self._async_protect(
+                                    spec, estimate, skip_backup, safety_result
+                                )
                         else:
                             await self._async_require_integrity()
                     except safety.SafetyError as err:
@@ -2068,6 +2290,8 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     details["deleted"] = deleted
                 if backup_info:
                     details["backup"] = backup_info["name"]
+                if undo_info and blocked is None:
+                    details["undo"] = undo_info
                 if blocked:
                     details["blocked"] = blocked["reason"]
                 self.store.log("cleanup", freed, details)
@@ -2082,6 +2306,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "errors": errors,
                 "blocked": blocked,
                 "backup": backup_info,
+                "undo": undo_info if blocked is None else None,
             }
 
     def _delete_estimate(self, db_targets: list[str]) -> int:
@@ -2223,7 +2448,7 @@ class StorageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await database.async_clear_statistics(self.hass, ids)
         await database.async_wait_idle(self.hass)
         results["dead"] = sum(i["bytes"] for i in items)
-        deleted["dead"] = ids[:LOG_IDS_MAX]
+        deleted["dead"] = ids
         self._drop_from_analysis(ids)
         stats = (self.store.data.analysis or {}).get("statistics") or {}
         for entity_id in ids:

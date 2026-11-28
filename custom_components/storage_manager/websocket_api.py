@@ -86,6 +86,7 @@ async def _overview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg
         "data": data,
         "recommendations": c.recommendations(),
         "history": list(reversed(c.store.data.history[-20:])),
+        "undo_available": await c.async_undo_available(),
         "options": c.options,
         "gui_recorder": bool(hass.config_entries.async_entries("gui_recorder")),
         "gui_recorder_imported": "gui_recorder" in c.store.data.migrated_from,
@@ -164,6 +165,14 @@ async def _preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
         event_types=msg.get("event_types"),
         entity_ids=msg.get("entity_ids"),
     )
+
+
+async def _undo_preview(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_undo_preview(msg["undo_id"])
+
+
+async def _undo(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
+    return await c.async_undo(msg["undo_id"])
 
 
 async def _dead_entities(hass: HomeAssistant, c: StorageCoordinator, msg: Msg) -> Msg:
@@ -357,6 +366,11 @@ def async_setup(hass: HomeAssistant) -> None:
         _preview,
     )
     _register(hass, {"type": f"{DOMAIN}/dead_entities"}, _dead_entities)
+    undo_id = vol.All(str, vol.Match(r"^[0-9a-f-]{1,40}$"))
+    _register(
+        hass, {"type": f"{DOMAIN}/undo_preview", vol.Required("undo_id"): undo_id}, _undo_preview
+    )
+    _register(hass, {"type": f"{DOMAIN}/undo", vol.Required("undo_id"): undo_id}, _undo)
     _register(
         hass,
         {

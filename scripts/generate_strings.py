@@ -58,6 +58,16 @@ def build(lang):
                 "Bevor Verlauf oder Statistiken gelöscht werden, wird ein Backup von Home Assistant mit Datenbank erstellt und geprüft. Ein Backup mit Datenbank aus den letzten sechs Stunden wird wiederverwendet.",
             ),
         ),
+        "targeted_backup": (
+            t(
+                "Targeted backup with undo instead of a full backup",
+                "Gezielte Sicherung mit Rückgängig statt vollem Backup",
+            ),
+            t(
+                "For orphaned history, statistics, dead entities and events, only the rows that are deleted are saved, and the history offers Undo. If that is not possible (too many rows, too little space), the full backup is created as before. The global purge always uses the full backup.",
+                "Bei verwaisten Verläufen, Statistiken, toten Entitäten und Ereignissen werden nur die gelöschten Zeilen gesichert, und der Verlauf bietet „Rückgängig“. Geht das nicht (zu viele Zeilen, zu wenig Platz), wird wie bisher ein volles Backup erstellt. Der globale Purge nutzt immer das volle Backup.",
+            ),
+        ),
         "update_interval": (t("Update interval", "Aktualisierungsintervall"), None),
         "analysis_hour": (t("Daily database analysis at", "Tägliche Datenbankanalyse um"), None),
     }

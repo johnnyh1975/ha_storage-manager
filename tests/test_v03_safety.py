@@ -581,7 +581,7 @@ async def test_plan_and_run(hass: HomeAssistant, tmp_path: Path) -> None:
 
 async def test_clean_runs_chain_and_logs(hass: HomeAssistant) -> None:
     """Database deletions wait for the chain; the log names backup and ids."""
-    entry = await setup_entry(hass, {"backup_before_delete": True})
+    entry = await setup_entry(hass, {"backup_before_delete": True, "targeted_backup": False})
     coordinator = entry.runtime_data
     backup = {
         "backup_id": "b1",
@@ -777,7 +777,8 @@ async def test_ws_integrity_and_safety_preview(
         assert msg["result"]["safety"]["space"]["backup"] == 0
         await client.send_json({"id": 4, "type": f"{DOMAIN}/preview", "targets": ["orphans"]})
         msg = await client.receive_json()
-        assert msg["result"]["safety"]["backup"] == {"action": "disabled"}
+        # the targeted backup runs even with the full backup turned off
+        assert msg["result"]["safety"]["backup"] == {"action": "undo", "fallback": False}
         assert msg["result"]["safety"]["integrity"] == "cached"
 
     await coordinator._lock.acquire()

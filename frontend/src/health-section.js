@@ -118,7 +118,8 @@ export const HealthSection = (Base) =>
         name: b.name || "",
         date: b.date ? dateTime(b.date, this.lang) : "",
         agents: (b.agents || []).map((a) => this._agentName(a)).join(", "),
-      })}</li>`);
+        undo: bytes(space.undo || 0, this.lang),
+      })}${b.action === "undo" && b.fallback ? t("safety_backup_undo_fallback") : ""}</li>`);
       return html`<h4>${t("safety_title")}</h4><ul class="safety">${items}</ul>`;
     }
 

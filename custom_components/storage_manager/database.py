@@ -705,6 +705,22 @@ def _rows_older(hass: HomeAssistant, entity_ids: list[str], before: float) -> in
     return total
 
 
+def _read(hass: HomeAssistant, job: Callable[[Session], Any]) -> Any:
+    with session_scope(hass=hass, read_only=True) as session:
+        return job(session)
+
+
+async def async_read(hass: HomeAssistant, job: Callable[[Session], Any]) -> Any:
+    """Run a read-only job with a database session in the recorder's executor."""
+    return await get_instance(hass).async_add_executor_job(_read, hass, job)
+
+
+def run_write(instance: Any, job: Callable[[Session], Any]) -> Any:
+    """Run a writing job with a session (on the recorder thread)."""
+    with session_scope(session=instance.get_session()) as session:
+        return job(session)
+
+
 NO_VALUE_STATES = ("unavailable", "unknown")
 
 

@@ -74,6 +74,12 @@ HOG_DEFINITIONS: tuple[HogDefinition, ...] = (
         safety="safe",
     ),
     HogDefinition(
+        key="undo_files",
+        patterns=(".storage/storage_manager/undo/*.ndjson.gz",),
+        # deleting them takes away Undo for those cleanups
+        safety="review",
+    ),
+    HogDefinition(
         key="core_dumps",
         patterns=("core", "core.[0-9]*"),
         safety="safe",
