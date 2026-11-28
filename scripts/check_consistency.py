@@ -93,8 +93,23 @@ def mixin_methods() -> list[str]:
     return errors
 
 
+SERVICES = ("cleanup.py", "undo_service.py")
+PRIVATE = re.compile(r"\b(?:self\._c|c)\._[a-z]")
+
+
+def service_boundary() -> list[str]:
+    """The services use the coordinator's public methods, not its internals."""
+    errors = []
+    base = ROOT / "custom_components" / "storage_manager"
+    for name in SERVICES:
+        for number, line in enumerate((base / name).read_text().splitlines(), 1):
+            if PRIVATE.search(line):
+                errors.append(f"{name}:{number}: reaches into the coordinator: {line.strip()}")
+    return errors
+
+
 def main() -> int:
-    errors = versions() + links() + mixin_methods()
+    errors = versions() + links() + mixin_methods() + service_boundary()
     if errors:
         print("\n".join(errors))
         return 1

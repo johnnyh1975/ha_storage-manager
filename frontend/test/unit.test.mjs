@@ -4,7 +4,7 @@
 // https://github.com/tonylofgren/aurora-smart-home
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { squarify, rate } from "../src/util.js";
+import { squarify, rate, contrast, readableOn, TM_COLORS } from "../src/util.js";
 import { translator } from "../src/i18n.js";
 import { bytes, number, dateTime } from "../src/format.js";
 
@@ -59,4 +59,15 @@ test("formatting", () => {
   assert.equal(number(1234, "de"), "1.234");
   assert.match(dateTime(1795850000, "en", true), /\d{1,2}:\d{2}:\d{2}/);
   assert.equal(dateTime(null, "en"), "–");
+});
+
+test("treemap labels are readable on every area colour", () => {
+  assert.ok(Math.abs(contrast("#ffffff", "#000000") - 21) < 1e-9);
+  assert.equal(contrast("#777777", "#777777"), 1);
+  for (const fill of TM_COLORS) {
+    // large bold text (WCAG AA): 3:1 at least
+    assert.ok(contrast(fill, readableOn(fill)) >= 3, `${fill} with ${readableOn(fill)}`);
+  }
+  assert.equal(readableOn("#1f1f1f"), "#ffffff");
+  assert.equal(readableOn("#f5f5f5"), "#1f1f1f");
 });

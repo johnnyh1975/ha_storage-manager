@@ -4,7 +4,7 @@
 import { html, nothing, svg } from "lit";
 import { live } from "lit/directives/live.js";
 import { bytes, number, percent, relativeTime, dateTime } from "./format.js";
-import { TM_COLORS, rate, squarify } from "./util.js";
+import { TM_COLORS, rate, readableOn, squarify } from "./util.js";
 
 export { rate };
 
@@ -12,6 +12,9 @@ export const TIER_ORDER = ["default", "7", "3", "1", "drop", "excluded"];
 export const TIER_DAYS = { "7": 7, "3": 3, "1": 1, drop: 0, excluded: 0 };
 const ENGINES = { sqlite: "SQLite", mysql: "MariaDB/MySQL", postgresql: "PostgreSQL" };
 const PAGE = 150;
+// sections of the Database tab that fold; open by default: none of them
+export const FOLDS = ["health", "dead", "unused", "events"];
+const FOLD_KEY = "storage_manager.folds";
 
 /** "every 2 s" / "every 5 min" / "12× per day" from rows in the last 24 h. */
 
@@ -96,6 +99,135 @@ export const DatabaseSection = (Base) =>
       }
     }
 
+    // ----------------------------------------------------- sections, jumps
+
+    _foldOpen(key, fallback = false) {
+      if (!this._folds) {
+        try {
+          this._folds = JSON.parse(window.localStorage.getItem(FOLD_KEY) || "{}") || {};
+        } catch (err) {
+          this._folds = {};
+        }
+      }
+      return this._folds[key] ?? fallback;
+    }
+
+    _setFold(key, open, remember = true) {
+      this._folds = { ...(this._folds || {}), [key]: open };
+      if (!remember) return;
+      try {
+        // only what the person chose: a jump opens a section for this visit
+        const stored = JSON.parse(window.localStorage.getItem(FOLD_KEY) || "{}") || {};
+        window.localStorage.setItem(FOLD_KEY, JSON.stringify({ ...stored, [key]: open }));
+      } catch (err) {
+        // private mode or storage off: the state lasts for this visit
+      }
+    }
+
+    /**
+     * A card of the Database tab: a target of the jump bar, and folding if
+     * ``fold`` is set. ``state`` names what the fold state belongs to: when
+     * it changes (a new problem), the default applies again.
+     */
+    _section(key, { title, meta = nothing, badge = nothing, actions = nothing, fold = false, open = false, state = "" }, body) {
+      const foldKey = state ? `${key}:${state}` : key;
+      const isOpen = !fold || this._foldOpen(foldKey, open);
+      const titleId = `sec-${key}-title`;
+      const head = fold
+        ? html`<h2 class="fold-title" id=${titleId}><button class="fold-toggle" aria-expanded=${isOpen ? "true" : "false"}
+            aria-controls=${isOpen ? `sec-${key}-body` : nothing} @click=${() => this._setFold(foldKey, !isOpen)}>
+            <span class="chev" aria-hidden="true">${isOpen ? "▾" : "▸"}</span>${title}</button></h2>`
+        : html`<h2 class="fold-title" id=${titleId}>${title}</h2>`;
+      return html`<section class="card" id=${`sec-${key}`} tabindex="-1" aria-labelledby=${titleId}>
+        <div class="fold-head">${head}${badge}<span class="spacer"></span>${meta}${actions}</div>
+        ${isOpen ? html`<div id=${`sec-${key}-body`}>${body()}</div>` : nothing}
+      </section>`;
+    }
+
+    _healthNotes() {
+      const h = this._health?.database;
+      return (h?.checks || []).filter((c) => c.status === "warning" || c.status === "error");
+    }
+
+    _jumpItems(ent) {
+      const t = this.t;
+      const items = [];
+      const h = this._health?.database;
+      if (h) {
+        const notes = this._healthNotes().length;
+        items.push({ key: "health", label: t("jump_health"), note: notes ? t("jump_notes", { n: notes }) : null, bad: h.status === "error" });
+      }
+      if (ent?.analysis_at) items.push({ key: "inbox", label: t("jump_inbox"), n: (ent.inbox || []).length });
+      const d = this._dead;
+      if (d && (d.items.length || d.disabled.length)) items.push({ key: "dead", label: t("jump_dead"), n: d.items.length || null });
+      const u = this._unused;
+      if (u && (u.items.length || u.off.length)) items.push({ key: "unused", label: t("jump_unused"), n: u.items.length || null });
+      if ((ent?.event_types || []).length) items.push({ key: "events", label: t("jump_events"), n: ent.event_types.length });
+      if (ent?.analysis_at) items.push({ key: "entities", label: t("jump_entities"), n: ent.rows.length });
+      return items;
+    }
+
+    _renderJumpBar(ent) {
+      const items = this._jumpItems(ent);
+      if (items.length < 2) return nothing;
+      return html`<nav class="jumpbar" aria-label=${this.t("jump_label")} @scroll=${(e) => this._edge(e.currentTarget)}>
+        ${items.map(
+          (i) => html`<button class="chip" @click=${() => this._goTo(i.key)}>${i.label}${i.n != null
+            ? html` <span class="count">${number(i.n, this.lang)}</span>`
+            : i.note ? html` <span class="count ${i.bad ? "bad" : "warn"}">${i.note}</span>` : nothing}</button>`
+        )}
+      </nav>`;
+    }
+
+    _edge(el) {
+      // mark the side where more is hidden in a row that scrolls (it fades there)
+      if (!el) return;
+      const left = el.scrollLeft > 2;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+      const more = left && right ? "both" : left ? "left" : right ? "right" : null;
+      if (more) el.setAttribute("data-more", more);
+      else el.removeAttribute("data-more");
+    }
+
+    _resetFilters() {
+      // a drill-down shows its list as such, not narrowed by an earlier filter
+      this._search = "";
+      this._domain = "";
+      this._facets = {};
+      this._onlyOrphans = false;
+      this._onlyChanged = false;
+      this._onlyAdvice = false;
+      this._limit = PAGE;
+    }
+
+    /** Open the Database tab at a section; with ``view`` the entity list is prepared (drill-down). */
+    async _goTo(key, { view, orphans, sort, facets } = {}) {
+      if (this._tab !== "database") this._setTab("database");
+      if (FOLDS.includes(key)) this._setFold(key, true, false);
+      if (view) {
+        this._resetFilters();
+        this._view = view;
+        if (orphans) this._onlyOrphans = true;
+        if (facets) this._facets = facets;
+        if (sort) this._sort = sort;
+      }
+      // the section may wait for its data (entities, dead entities) to arrive
+      let el;
+      for (let i = 0; i < 50; i++) {
+        await this.updateComplete;
+        el = this.renderRoot?.getElementById?.(`sec-${key}`);
+        if (el) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.focus({ preventScroll: true });
+      // a short highlight shows where the jump landed, also after a click
+      el.classList.remove("landed");
+      void el.offsetWidth;
+      el.classList.add("landed");
+    }
+
     // ------------------------------------------------------------- render
 
     _renderDatabase() {
@@ -129,9 +261,11 @@ export const DatabaseSection = (Base) =>
         <div class="grid2">
           <div class="card">
             <div class="kpis">
-              <div class="kpi"><div class="v">${bytes(db.size, this.lang)}</div><div class="l">${t("db_size")}</div></div>
+              <button class="kpi link" title=${t("kpi_size_hint")} @click=${() => this._goTo("entities", { view: "all", sort: "size", orphans: false })}>
+                <div class="v">${bytes(db.size, this.lang)}<span class="go" aria-hidden="true">›</span></div><div class="l">${t("db_size")}</div></button>
               <div class="kpi"><div class="v">${ENGINES[db.dialect] || db.dialect || "–"}</div><div class="l">${t("db_engine")}</div></div>
-              <div class="kpi"><div class="v">${t("days", { n: db.keep_days })}</div><div class="l">${t("db_keep")}</div></div>
+              <button class="kpi link" title=${t("kpi_keep_hint")} @click=${() => this._setTab("settings")}>
+                <div class="v">${t("days", { n: db.keep_days })}<span class="go" aria-hidden="true">›</span></div><div class="l">${t("db_keep")}</div></button>
               <div class="kpi"><div class="v">${running ? html`<span class="spinner" style="width:18px;height:18px"></span>` : relativeTime(db.analysis_at, t, this.lang)}</div>
                 <div class="l">${t("db_analysis")}</div></div>
             </div>
@@ -159,16 +293,17 @@ export const DatabaseSection = (Base) =>
           </div>
           ${this._renderEffect(ent)}
         </div>
+        ${this._renderJumpBar(ent)}
         ${this._renderWindowResult()}
+        ${this._renderDbHealth()}
 
         ${!ent
           ? html`<div class="card"><div class="center"><span class="spinner"></span></div></div>`
           : !ent.analysis_at
           ? html`<div class="card"><p class="muted">${t("analysis_needed")}</p></div>`
-          : html`${this._renderInbox(ent)} ${this._renderDead()} ${this._renderUnused()} ${this._renderExplorer(ent)}`}
-
-        ${this._healthCard("database")}
-        ${this._renderEvents(ent)}
+          : this._renderInbox(ent)}
+        ${this._renderDead()} ${this._renderUnused()} ${this._renderEvents(ent)}
+        ${ent?.analysis_at ? this._renderExplorer(ent) : nothing}
         ${this._renderDetail()}
       `;
     }
@@ -193,9 +328,14 @@ export const DatabaseSection = (Base) =>
       const line = (i) => html`<span class="muted small">${i.entity_id} · ${t(`dead_kind_${i.kind}`)}
         · ${i.no_value_recorded ? t("dead_never", { date: dateTime(i.since, this.lang) }) : t("dead_since", { date: dateTime(i.since, this.lang) })}
         ${i.bytes ? ` · ${bytes(i.bytes, this.lang)}` : ""}</span>`;
-      return html`<div class="card">
-        <h2 class="wrap">${t("dead_title")}<span class="spacer"></span>
-          ${d.bytes ? html`<span class="muted small">${bytes(d.bytes, this.lang)}</span>` : nothing}</h2>
+      return this._section(
+        "dead",
+        {
+          title: d.items.length ? t("dead_title_n", { n: d.items.length }) : t("dead_title"),
+          meta: d.bytes ? html`<span class="muted small">${bytes(d.bytes, this.lang)}</span>` : nothing,
+          fold: true,
+        },
+        () => html`
         <p class="muted small" style="margin-top:0">${t("dead_hint")}</p>
         ${selectable.length
           ? html`<div class="dead-actions">
@@ -230,8 +370,8 @@ export const DatabaseSection = (Base) =>
                   <button class="linklike" ?disabled=${busy} @click=${() => this._enableDead([e.entity_id])}>${t("dead_enable")}</button></li>`
               )}</ul>
               <p class="muted small">${t("dead_enable_hint")}</p>`
-          : nothing}
-      </div>`;
+          : nothing}`
+      );
     }
 
     _otherCards(usage) {
@@ -304,9 +444,14 @@ export const DatabaseSection = (Base) =>
         .map((kind) => ({ kind, items: u.items.filter((i) => i.kind === kind) }))
         .filter((g) => g.items.length);
       const busy = !!this._working;
-      return html`<div class="card">
-        <h2>${t("unused_title")}<span class="spacer"></span>
-          ${u.bytes ? html`<span class="muted small">${bytes(u.bytes, this.lang)}</span>` : nothing}</h2>
+      return this._section(
+        "unused",
+        {
+          title: u.items.length ? t("unused_title_n", { n: u.items.length }) : t("unused_title"),
+          meta: u.bytes ? html`<span class="muted small">${bytes(u.bytes, this.lang)}</span>` : nothing,
+          fold: true,
+        },
+        () => html`
         <p class="muted small" style="margin-top:0">${t("unused_hint")}</p>
         ${groups.map((g) => {
           const open = this._unusedOpen === g.kind;
@@ -337,8 +482,8 @@ export const DatabaseSection = (Base) =>
                 (e) => html`<li>${this.hass.states[e]?.attributes?.friendly_name || e}
                   <button class="linklike" ?disabled=${busy} @click=${() => this._statisticsOn([e])}>${t("unused_on")}</button></li>`
               )}</ul>`
-          : nothing}
-      </div>`;
+          : nothing}`
+      );
     }
 
     async _statisticsOn(entityIds) {
@@ -363,7 +508,15 @@ export const DatabaseSection = (Base) =>
       const sys = this._overview?.data?.system_log;
       const busy = !!this._working;
       const excluded = events.filter((e) => e.excluded && e.deletable);
-      return html`<div class="card"><h2>${t("events_title")}</h2>
+      const total = events.reduce((a, e) => a + (e.est_bytes || 0), 0);
+      return this._section(
+        "events",
+        {
+          title: t("events_title_n", { n: events.length }),
+          meta: total ? html`<span class="muted small">${bytes(total, this.lang)}</span>` : nothing,
+          fold: true,
+        },
+        () => html`
         <p class="muted small" style="margin-top:0">${t("events_hint")}</p>
         ${sys?.fire_event
           ? html`<div class="banner" style="margin:8px 0"><div class="txt">${t("system_log_fire_event", { rows: number(sys.rows, this.lang) })}</div></div>`
@@ -386,8 +539,8 @@ export const DatabaseSection = (Base) =>
         ${excluded.length > 1
           ? html`<div class="row" style="margin-top:8px"><button class="btn" ?disabled=${busy}
               @click=${() => this._previewAndClean(["events"], { event_types: excluded.map((e) => e.event_type) })}>${t("events_delete_excluded", { n: excluded.length })}</button></div>`
-          : nothing}
-      </div>`;
+          : nothing}`
+      );
     }
 
     // -------------------------------------------------------------- inbox
@@ -397,11 +550,15 @@ export const DatabaseSection = (Base) =>
       const items = ent.inbox || [];
       const ids = (a) => a.entity_ids || [a.entity_id];
       const pending = items.flatMap(ids).filter((id) => !this._draft.has(id));
-      return html`<div class="card">
-        <h2>${t("inbox_title")}
-          <span class="spacer"></span>
-          ${items.length ? html`<span class="muted small">${t("inbox_summary", { n: items.length, bytes: bytes(ent.inbox_saving, this.lang) })}</span>` : nothing}
-        </h2>
+      return this._section(
+        "inbox",
+        {
+          title: t("inbox_title"),
+          meta: items.length
+            ? html`<span class="muted small">${t("inbox_summary", { n: items.length, bytes: bytes(ent.inbox_saving, this.lang) })}</span>`
+            : nothing,
+        },
+        () => html`
         ${items.length === 0
           ? html`<p class="muted">${t("inbox_empty")}</p>`
           : html`
@@ -418,8 +575,8 @@ export const DatabaseSection = (Base) =>
               </div>`}
         ${!items.length && ent.dismissed_count
           ? html`<button class="btn" @click=${() => this._dismiss([], true)}>${t("inbox_show_dismissed", { n: ent.dismissed_count })}</button>`
-          : nothing}
-      </div>`;
+          : nothing}`
+      );
     }
 
     // ------------------------------------------------------- kinds of sensor
@@ -462,6 +619,7 @@ export const DatabaseSection = (Base) =>
       const busy = !!this._working;
       const label = (m) => (m == null ? t("stats_ret_forever") : m === 12 ? t("stats_ret_year") : m % 12 === 0 ? t("stats_ret_years", { n: m / 12 }) : t("stats_ret_months", { n: m }));
       const select = (key) => html`<select .value=${String(d[key] ?? "")} ?disabled=${busy}
+          aria-label=${t(key === "energy" ? "stats_ret_energy" : "stats_ret_other")}
           @change=${(e) => { this._statsDraft = { ...d, [key]: e.target.value === "" ? null : Number(e.target.value) }; this._loadStatsPlan(); }}>
           <option value="" ?selected=${d[key] == null}>${label(null)}</option>
           ${r.options.map((m) => html`<option value=${m} ?selected=${d[key] === m}>${label(m)}</option>`)}
@@ -641,7 +799,36 @@ export const DatabaseSection = (Base) =>
           <span class="muted small">${t("window_hint")}</span>
           <span class="spacer"></span>
           ${quick.map(([k, s]) => html`<button class="chip" @click=${() => this._loadWindow(now - s, now)}>${t(`window_${k}`)}</button>`)}
-        </div>`;
+          <button class="chip" aria-expanded=${this._winCustom ? "true" : "false"}
+            @click=${() => (this._winCustom = !this._winCustom)}>${t("window_custom")}</button>
+        </div>
+        ${this._winCustom ? this._renderWindowForm(now) : nothing}`;
+    }
+
+    _renderWindowForm(now) {
+      // the same as dragging in the chart, for the keyboard and exact times
+      const t = this.t;
+      const local = (ts) => {
+        const d = new Date(ts * 1000);
+        const p = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+      };
+      const submit = (ev) => {
+        ev.preventDefault();
+        const form = new FormData(ev.target);
+        const start = Date.parse(String(form.get("from"))) / 1000;
+        const end = Date.parse(String(form.get("to"))) / 1000;
+        if (!(start < end)) {
+          this._showToast(t("window_order"));
+          return;
+        }
+        this._loadWindow(start, end);
+      };
+      return html`<form class="window-form" @submit=${submit}>
+        <label>${t("window_from")}<input type="datetime-local" name="from" required .value=${local(this._win?.start ?? now - 86400)} /></label>
+        <label>${t("window_to")}<input type="datetime-local" name="to" required .value=${local(this._win?.end ?? now)} /></label>
+        <button class="btn" type="submit">${t("window_show")}</button>
+      </form>`;
     }
 
     _renderWindowResult() {
@@ -730,7 +917,8 @@ export const DatabaseSection = (Base) =>
     _renderExplorer(ent) {
       const t = this.t;
       const view = this._view || "top";
-      return html`<div class="card">
+      return html`<section class="card" id="sec-entities" tabindex="-1" aria-labelledby="sec-entities-title">
+        <div class="fold-head"><h2 class="fold-title" id="sec-entities-title">${t("entities_title")}</h2></div>
         <div class="row" style="margin-bottom:12px">
           <div class="segmented" role="tablist">
             ${["top", "groups", "all"].map(
@@ -742,7 +930,7 @@ export const DatabaseSection = (Base) =>
           <span class="muted small">${t("view_total", { n: number(ent.rows.length, this.lang), bytes: bytes(ent.total_bytes, this.lang) })}</span>
         </div>
         ${view === "groups" ? this._renderGroups(ent) : view === "all" ? this._renderAll(ent) : this._renderTop(ent)}
-      </div>`;
+      </section>`;
     }
 
     _renderTop(ent) {
@@ -809,11 +997,8 @@ export const DatabaseSection = (Base) =>
     }
 
     _drillIntegration(key) {
-      this._facets = { integration: key || "" };
-      this._search = "";
-      this._domain = "";
-      this._view = "all";
-      this._limit = PAGE;
+      // like every drill-down: fresh filters, and the focus goes to the list
+      this._goTo("entities", { view: "all", facets: { integration: key || "" } });
     }
 
     _treemap(groups, total) {
@@ -822,13 +1007,21 @@ export const DatabaseSection = (Base) =>
       const W = 600;
       const H = 220;
       const rects = squarify(items.map((g) => ({ g, v: g.bytes })), 0, 0, W, H);
-      return html`<svg class="treemap" viewBox="0 0 ${W} ${H}" role="img" aria-label=${this.t("treemap_label")}>
-        ${rects.map((r, i) => svg`<g class="tm" @click=${() => this._drillIntegration(r.g.key)}>
+      const key = (ev, g) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          this._drillIntegration(g.key);
+        }
+      };
+      return html`<svg class="treemap" viewBox="0 0 ${W} ${H}" role="group" aria-label=${this.t("treemap_label")}>
+        ${rects.map((r, i) => svg`<g class="tm" tabindex="0" role="button"
+          aria-label=${`${this._integrationName(r.g.key)}: ${bytes(r.g.bytes, this.lang)} (${percent(r.g.bytes / total, this.lang)})`}
+          @click=${() => this._drillIntegration(r.g.key)} @keydown=${(ev) => key(ev, r.g)}>
           <rect x=${r.x + 1} y=${r.y + 1} width=${Math.max(r.w - 2, 0)} height=${Math.max(r.h - 2, 0)} rx="4"
             fill=${TM_COLORS[i % TM_COLORS.length]}><title>${this._integrationName(r.g.key)}: ${bytes(r.g.bytes, this.lang)} (${percent(r.g.bytes / total, this.lang)})</title></rect>
           ${r.w > 60 && r.h > 28
-            ? svg`<text x=${r.x + 7} y=${r.y + 17} class="tm-label">${this._integrationName(r.g.key)}</text>
-                <text x=${r.x + 7} y=${r.y + 31} class="tm-sub">${bytes(r.g.bytes, this.lang)}</text>`
+            ? svg`<text x=${r.x + 7} y=${r.y + 17} class="tm-label" fill=${readableOn(TM_COLORS[i % TM_COLORS.length])}>${this._integrationName(r.g.key)}</text>
+                <text x=${r.x + 7} y=${r.y + 31} class="tm-sub" fill=${readableOn(TM_COLORS[i % TM_COLORS.length])}>${bytes(r.g.bytes, this.lang)}</text>`
             : nothing}
         </g>`)}
       </svg>
@@ -909,7 +1102,7 @@ export const DatabaseSection = (Base) =>
             <option value="">${t("all_domains")}</option>
             ${domains.map((d) => html`<option value=${d} ?selected=${d === this._domain}>${d}</option>`)}
           </select>
-          <select @change=${(e) => (this._sort = e.target.value)} aria-label="sort">
+          <select @change=${(e) => (this._sort = e.target.value)} aria-label=${t("sort_label")}>
             ${["size", "rate", "name"].map((s) => html`<option value=${s} ?selected=${s === this._sort}>${t(`sort_${s}`)}</option>`)}
           </select>
           <button class="chip" aria-pressed=${this._onlyAdvice ? "true" : "false"}
@@ -940,7 +1133,7 @@ export const DatabaseSection = (Base) =>
       return html`<table class="responsive ${selectable ? "" : "noselect"}">
         <thead><tr>
           ${selectable
-            ? html`<th style="width:28px"><input type="checkbox" .checked=${allSelected} aria-label="select all"
+            ? html`<th style="width:28px"><input type="checkbox" .checked=${allSelected} aria-label=${t("select_all_label")}
                 @change=${(e) => {
                   const s = new Set(this._selected);
                   rows.forEach((r) => (e.target.checked ? s.add(r.entity_id) : s.delete(r.entity_id)));
@@ -1243,13 +1436,16 @@ export const DatabaseSection = (Base) =>
       const autoNames = (usage.automations || []).map((id) => this.hass.states[id]?.attributes?.friendly_name || id);
       const scriptNames = (usage.scripts || []).map((id) => this.hass.states[id]?.attributes?.friendly_name || id);
       return html`
-        <div class="kpis" style="margin-bottom:16px">
+        <div class="kpis">
           <div class="kpi"><div class="v">${bytes(info.est_bytes || 0, this.lang)}</div><div class="l">${t("col_size")}</div></div>
           <div class="kpi"><div class="v">${number(info.rows || 0, this.lang)}</div><div class="l">${t("col_rows")}</div></div>
           <div class="kpi"><div class="v">${rate(info.rows_24h, t, this.lang)}</div><div class="l">${t("detail_rate")}</div></div>
         </div>
+        <p class="muted small source-line">${d.analysis_at
+          ? t("detail_from_analysis", { when: relativeTime(d.analysis_at, t, this.lang) })
+          : t("detail_no_analysis")} ${t("detail_live_hint")}</p>
 
-        <h4>${t("detail_daily", { n: d.days })}</h4>
+        <h4>${t("detail_daily", { n: d.days })} <span class="tag live" title=${t("detail_live_hint")}>${t("detail_live")}</span></h4>
         <div class="spark" role="img" aria-label=${t("detail_daily", { n: d.days })}>
           ${d.daily.map((v, i) => html`<div title=${`${number(v, this.lang)}`} style="height:${Math.max((v / maxDay) * 100, v ? 3 : 0)}%"
             class=${i === d.daily.length - 1 ? "today" : ""}></div>`)}
@@ -1262,7 +1458,7 @@ export const DatabaseSection = (Base) =>
             })}</p>`
           : nothing}
         ${(d.drivers || []).length
-          ? html`<h4>${t("detail_drivers")}</h4>
+          ? html`<h4>${t("detail_drivers")} <span class="tag live" title=${t("detail_live_hint")}>${t("detail_live")}</span></h4>
               ${d.drivers.map(
                 (a) => html`<div class="attr"><code>${a.name}</code>
                   ${a.driver ? html`<span class="tag warn">${t("detail_driver")}</span>` : nothing}
@@ -1276,7 +1472,7 @@ export const DatabaseSection = (Base) =>
               <p class="muted small">${t("detail_drivers_hint")}</p>`
           : nothing}
         ${d.attributes.length
-          ? html`<h4>${t("detail_attributes", { n: number(d.attribute_variants, this.lang) })}</h4>
+          ? html`<h4>${t("detail_attributes", { n: number(d.attribute_variants, this.lang) })} <span class="tag live" title=${t("detail_live_hint")}>${t("detail_live")}</span></h4>
               ${d.attributes.map(
                 (a) => html`<div class="attr"><code>${a.name}</code><span class="spacer"></span><span class="muted small">${bytes(a.bytes, this.lang)}</span></div>`
               )}

@@ -672,7 +672,7 @@ async def test_repack_needs_clean_integrity(hass: HomeAssistant, tmp_path: Path)
         run = AsyncMock()
         with (
             patch.object(coord_mod.repack, "async_repack", run),
-            patch.object(coordinator, "_schedule_reanalysis"),
+            patch.object(coordinator, "schedule_reanalysis"),
         ):
             result = await coordinator.async_clean(["repack"])
         assert result["blocked"] is None
@@ -735,7 +735,7 @@ async def test_apply_runs_chain(hass: HomeAssistant) -> None:
     with (
         patch.object(coord_mod.safety, "async_run", AsyncMock(return_value={"backup": backup})),
         patch.object(coord_mod.database, "async_purge_entities", AsyncMock()) as purge,
-        patch.object(coordinator, "_schedule_reanalysis"),
+        patch.object(coordinator, "schedule_reanalysis"),
     ):
         result = await coordinator.async_apply_recorder_changes(retention={"sensor.a": "drop"})
     assert result["blocked"] is None
@@ -840,7 +840,7 @@ async def test_figures_refresh_after_cleanup(hass: HomeAssistant, tmp_path: Path
         coordinator._cache_at["breakdown"] = 1e12
         with (
             patch.object(coord_mod.repack, "async_repack", AsyncMock()),
-            patch.object(coordinator, "_schedule_reanalysis") as reanalyse,
+            patch.object(coordinator, "schedule_reanalysis") as reanalyse,
             patch.object(coordinator, "invalidate", wraps=coordinator.invalidate) as inv,
         ):
             result = await coordinator.async_clean(["repack"])

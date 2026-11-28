@@ -148,9 +148,9 @@ async def test_statistics_age_follows_the_plan(hass: HomeAssistant) -> None:
     current = AsyncMock(side_effect=[shown, later, shown])
     deleted = AsyncMock(return_value=10)
     with (
-        patch.object(coordinator, "_statistics_age_current", current),
-        patch.object(coordinator, "_delete_old_statistics", deleted),
-        patch.object(coordinator, "_async_safety", AsyncMock(return_value={})),
+        patch.object(coordinator, "async_statistics_age_current", current),
+        patch.object(coordinator, "async_delete_old_statistics", deleted),
+        patch.object(coordinator, "async_safety", AsyncMock(return_value={})),
         patch.object(coordinator.undo, "async_protect", AsyncMock(return_value=None)),
     ):
         plan_id = (await coordinator.async_preview(["statistics_age"]))["plan_id"]
@@ -226,8 +226,8 @@ async def test_statistics_age_run_holds_the_lock(hass: HomeAssistant) -> None:
 
     with (
         patch.object(coordinator, "statistics_retention", return_value={"active": True}),
-        patch.object(coordinator, "_statistics_age_current", AsyncMock(return_value=plan)),
-        patch.object(coordinator, "_delete_old_statistics", side_effect=delete),
+        patch.object(coordinator, "async_statistics_age_current", AsyncMock(return_value=plan)),
+        patch.object(coordinator, "async_delete_old_statistics", side_effect=delete),
     ):
         assert await coordinator.async_run_statistics_age() == 2
     assert seen == [(True, "statistics_age")]
@@ -286,8 +286,8 @@ async def test_apply_does_not_purge_entities_excluded_before(hass: HomeAssistant
     coordinator.store.data.excluded = ["sensor.old"]
     purge = AsyncMock()
     with (
-        patch.object(coordinator, "_async_sync_package", AsyncMock(return_value=True)),
-        patch.object(coordinator, "_async_safety", AsyncMock(return_value={})),
+        patch.object(coordinator, "async_sync_package", AsyncMock(return_value=True)),
+        patch.object(coordinator, "async_safety", AsyncMock(return_value={})),
         patch.object(coordinator.undo, "async_protect", AsyncMock(return_value=None)),
         patch.object(database, "async_purge_entities", purge),
     ):

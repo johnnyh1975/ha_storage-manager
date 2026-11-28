@@ -190,6 +190,26 @@ export const HealthSection = (Base) =>
       </div>`;
     }
 
+    /** The database checks in the Database tab: folded unless something needs a look. */
+    _renderDbHealth() {
+      const t = this.t;
+      const h = this._health?.database;
+      if (!h) return nothing;
+      return this._section(
+        "health",
+        {
+          title: t("health_database"),
+          badge: html`<span class="tag ${h.status === "ok" ? "ok" : h.status === "error" ? "bad" : "warn"}">${t(`status_${h.status}`)}</span>`,
+          actions: html`<button class="btn" ?disabled=${!!this._working} @click=${() => this._loadHealth(true)}>${t("check_again")}</button>`,
+          fold: true,
+          open: h.status !== "ok",
+          // folded with one warning, it opens again when another check needs a look
+          state: this._healthNotes().map((c) => `${c.key}=${c.status}`).sort().join(","),
+        },
+        () => h.checks.map((c) => this._checkRow(c, this._checkAction(c)))
+      );
+    }
+
     async _ackWriters() {
       try {
         await this._ws("ack_writers");

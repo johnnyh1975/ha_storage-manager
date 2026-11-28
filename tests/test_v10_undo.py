@@ -320,7 +320,7 @@ async def test_undo_reverts_side_effects(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.dead_x", "unavailable")
     await async_wait_recording_done(hass)
     coordinator.store.data.stats_off = ["sensor.noise"]
-    coordinator._disable(["sensor.dead_x"])
+    coordinator.disable_entities(["sensor.dead_x"])
     path = undo.path_for(hass.config.config_dir, "1-ab")
     await database.async_read(
         hass, lambda s: undo.export(s, path, undo.Spec(states={"sensor.dead_x": None}))
@@ -333,7 +333,7 @@ async def test_undo_reverts_side_effects(hass: HomeAssistant) -> None:
             "undo": {"id": "1-ab"},
         },
     )
-    with patch.object(coordinator, "_async_sync_package", AsyncMock(return_value=True)):
+    with patch.object(coordinator, "async_sync_package", AsyncMock(return_value=True)):
         result = await coordinator.async_undo("1-ab")
     assert result["enabled"] == ["sensor.dead_x"]
     assert result["statistics_on"] == ["sensor.noise"]

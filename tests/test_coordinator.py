@@ -154,7 +154,7 @@ async def test_retention_scheduler_and_estimate(hass: HomeAssistant) -> None:
     # no re-analysis: it would replace the hand-made analysis checked below
     with (
         patch.object(coord_mod.database, "async_purge_entities", _purge),
-        patch.object(coordinator, "_schedule_reanalysis"),
+        patch.object(coordinator, "schedule_reanalysis"),
     ):
         result = await coordinator.async_apply_recorder_changes(
             retention={"sensor.a": "7", "sensor.b": "drop", "sensor.e": "1", "sensor.unknown": "3"}
@@ -333,5 +333,5 @@ async def test_clean_specific_orphans(hass: HomeAssistant) -> None:
     assert result["results"]["orphans"] == 500  # the size of exactly these entities
     assert "sensor.gone" not in coordinator.store.data.analysis["entities"]
     coordinator.store.data.analysis = None
-    coordinator._drop_from_analysis(["x"])
+    coordinator.drop_from_analysis(["x"])
     coordinator._adjust_analysis({0: ["x"]})

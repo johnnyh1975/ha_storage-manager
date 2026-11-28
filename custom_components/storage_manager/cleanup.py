@@ -150,17 +150,19 @@ class CleanupService:
         if "unused_statistics" in targets:
             wanted = plan.get("unused_statistics") if plan is not None else statistic_ids
             sel.unused = (
-                [] if plan is not None and not wanted else await c._unused_selection(wanted)
+                [] if plan is not None and not wanted else await c.async_unused_selection(wanted)
             )
         if "dead" in targets:
-            sel.dead = await c._dead_selection(plan.get("dead") if plan is not None else entity_ids)
+            sel.dead = await c.async_dead_selection(
+                plan.get("dead") if plan is not None else entity_ids
+            )
         if "events" in targets:
             wanted = plan.get("events") if plan is not None else event_types
-            sel.events = [] if plan is not None and not wanted else c._events_selection(wanted)
+            sel.events = [] if plan is not None and not wanted else c.events_selection(wanted)
             if sel.events:
                 sel.events_max_id = await database.async_max_event_id(c.hass)
         if "statistics_age" in targets:
-            sel.age = await c._statistics_age_current()
+            sel.age = await c.async_statistics_age_current()
             if plan is not None:
                 sel.age = _bound_age(sel.age, plan.get("statistics_age"))
         return sel
@@ -314,9 +316,9 @@ class CleanupService:
         if unknown:
             raise HomeAssistantError(f"Unknown cleanup targets: {', '.join(sorted(unknown))}")
         plan = self._take_plan(plan_id, targets) if plan_id is not None else None
-        if self._c._lock.locked():
+        if self._c.lock.locked():
             raise HomeAssistantError("Another cleanup is running")
-        async with self._c._lock:
+        async with self._c.lock:
             await self._c.async_refresh()
             before = self._c.data["disk"]["free"] if self._c.data else 0
             results: dict[str, Any] = {}
@@ -342,7 +344,7 @@ class CleanupService:
                         if db_targets:
                             estimate = self._delete_estimate(db_targets, sel)
                             planned = self._c.undo.planned(db_targets)
-                            safety_result = await self._c._async_safety(
+                            safety_result = await self._c.async_safety(
                                 skip_backup=skip_backup or planned,
                                 delete_bytes=estimate,
                                 backup_needed=_needs_backup(db_targets),
@@ -370,7 +372,7 @@ class CleanupService:
                         await self._clean_statistics_age(results, deleted, sel.age)
                     if db_targets:
                         # a fresh sample for the effect chart and fresh sizes
-                        self._c._schedule_reanalysis()
+                        self._c.schedule_reanalysis()
                     if "repack" in targets:
                         await self._clean_repack(repack_method, convert, results, errors)
             except Exception as err:  # noqa: BLE001 - logged with what was done, then raised
@@ -378,7 +380,7 @@ class CleanupService:
                 # stay in the history
                 failure = err
             finally:
-                self._c._set_busy(None)
+                self._c.set_busy(None)
                 if self._c.store.data.running is not None:
                     await self._c.store.async_clear_running()
                 if plan_id is not None and blocked is None:
@@ -443,7 +445,7 @@ class CleanupService:
         plan: dict[str, Any] | None = None,
     ) -> None:
         if "backups" in targets:
-            self._c._set_busy("backups")
+            self._c.set_busy("backups")
             # a fresh list: a copy elsewhere may have gone since the last poll
             fresh = await backup_mod.async_list(self._c.hass)
             if fresh is not None and fresh["agent_errors"]:
@@ -464,7 +466,7 @@ class CleanupService:
                 errors += errs
             self._c.invalidate("backups", "breakdown")
         if "files" in targets:
-            self._c._set_busy("files")
+            self._c.set_busy("files")
             scan = (self._c.data or {}).get("files") or {}
             keys = hog_keys or [h["key"] for h in scan.get("hogs", []) if h["safety"] == "safe"]
             if plan is not None:
@@ -482,14 +484,14 @@ class CleanupService:
             if not is_hassio(self._c.hass):
                 errors.append("docker cleanup needs the Supervisor")
             else:
-                self._c._set_busy("docker")
+                self._c.set_busy("docker")
                 await disk.async_supervisor_repair(self._c.hass)
                 results["docker"] = 0
                 self._c.invalidate("breakdown")
 
     async def _async_require_integrity(self) -> None:
         """A repack alone needs no backup, but never runs on a damaged file."""
-        self._c._set_busy("safety_integrity")
+        self._c.set_busy("safety_integrity")
         result = await safety.async_integrity(
             self._c.hass, database.sqlite_path(self._c.hass), self._c.store
         )
@@ -507,13 +509,13 @@ class CleanupService:
         deleted: dict[str, Any],
     ) -> None:
         if "orphans" in db_targets:
-            self._c._set_busy("orphans")
+            self._c.set_busy("orphans")
             await database.async_purge_entities(self._c.hass, sel.orphans, 0)
             results["orphans"] = sel.orphan_bytes
             deleted["entities"] = sel.orphans[:LOG_IDS_MAX]
-            self._c._drop_from_analysis(sel.orphans)
+            self._c.drop_from_analysis(sel.orphans)
         if "statistics" in db_targets:
-            self._c._set_busy("statistics")
+            self._c.set_busy("statistics")
             await database.async_clear_statistics(self._c.hass, sel.statistics)
             results["statistics"] = sel.statistics_bytes
             deleted["statistics"] = sel.statistics[:LOG_IDS_MAX]
@@ -521,7 +523,7 @@ class CleanupService:
             for sid in sel.statistics:
                 known.pop(sid, None)
         if "purge" in db_targets:
-            self._c._set_busy("purge")
+            self._c.set_busy("purge")
             obsolete = (self._c.store.data.analysis or {}).get("obsolete") or {}
             await database.async_purge(self._c.hass)
             await database.async_wait_idle(self._c.hass)
@@ -542,14 +544,14 @@ class CleanupService:
         deleted: dict[str, Any],
         errors: list[str],
     ) -> None:
-        self._c._set_busy("unused_statistics")
+        self._c.set_busy("unused_statistics")
         items = sel.unused
         switch_off = [i["statistic_id"] for i in items if i["kind"] in ("noise", "time")]
         if switch_off:
             data = self._c.store.data
             data.stats_off = sorted({*data.stats_off, *switch_off})
             self._c.store.schedule_save()
-            if not await self._c._async_sync_package():  # pragma: no cover - checked above
+            if not await self._c.async_sync_package():  # pragma: no cover - checked above
                 errors.append("packages_missing")
         ids = [i["statistic_id"] for i in items]
         await database.async_clear_statistics(self._c.hass, ids)
@@ -569,16 +571,16 @@ class CleanupService:
         deleted: dict[str, Any],
     ) -> None:
         """Disable dead entities, then delete their history and statistics."""
-        self._c._set_busy("dead")
+        self._c.set_busy("dead")
         items = sel.dead
         ids = [i["entity_id"] for i in items]
-        self._c._disable(ids)
+        self._c.disable_entities(ids)
         await database.async_purge_entities(self._c.hass, ids, 0)
         await database.async_clear_statistics(self._c.hass, ids)
         await database.async_wait_idle(self._c.hass)
         results["dead"] = sum(i["bytes"] for i in items)
         deleted["dead"] = ids
-        self._c._drop_from_analysis(ids)
+        self._c.drop_from_analysis(ids)
         stats = (self._c.store.data.analysis or {}).get("statistics") or {}
         for entity_id in ids:
             stats.pop(entity_id, None)
@@ -593,7 +595,7 @@ class CleanupService:
         if not items:
             results["events"] = 0
             return
-        self._c._set_busy("events")
+        self._c.set_busy("events")
         types = [e["event_type"] for e in items]
         rows = await database.async_delete_events(self._c.hass, types, max_id=sel.events_max_id)
         results["events"] = sum(int(e.get("est_bytes") or 0) for e in items) if rows else 0
@@ -611,10 +613,10 @@ class CleanupService:
         deleted: dict[str, Any],
         plan: dict[str, Any] | None = None,
     ) -> None:
-        self._c._set_busy("statistics_age")
+        self._c.set_busy("statistics_age")
         # the plan the targeted backup was written for, so both use the same cutoffs
-        plan = plan if plan is not None else await self._c._statistics_age_current()
-        rows = await self._c._delete_old_statistics(plan)
+        plan = plan if plan is not None else await self._c.async_statistics_age_current()
+        rows = await self._c.async_delete_old_statistics(plan)
         data = self._c.store.data
         if data.stats_keep_months or data.energy_stats_keep_months:
             data.stats_limits_applied = [data.stats_keep_months, data.energy_stats_keep_months]
@@ -642,7 +644,7 @@ class CleanupService:
             if not self._c.repack_possible():
                 errors.append("not enough free space for repack")
                 return
-            self._c._set_busy("repack")
+            self._c.set_busy("repack")
             await database.async_repack(self._c.hass)
             await database.async_wait_idle(self._c.hass)
         else:
@@ -651,7 +653,7 @@ class CleanupService:
             if option is None or not option["possible"]:
                 errors.append("not enough free space for repack")
                 return
-            self._c._set_busy("repack")
+            self._c.set_busy("repack")
             await repack.async_repack(
                 self._c.hass,
                 path,
@@ -664,8 +666,8 @@ class CleanupService:
         if self._c.store.data.analysis is not None:
             self._c.store.data.analysis["freelist_bytes"] = 0
         # new size sample for the effect chart and fresh sizes per entity
-        self._c._schedule_reanalysis()
+        self._c.schedule_reanalysis()
 
     def _repack_progress(self, share: float) -> None:
         self._c.busy = f"repack:{round(share * 100)}"
-        self._c._notify()
+        self._c.notify()

@@ -108,7 +108,7 @@ async def test_apply_clears_dismissal_and_reanalyses(hass: HomeAssistant) -> Non
     entry = await setup_entry(hass)
     coordinator = entry.runtime_data
     coordinator.store.data.dismissed = {"sensor.a": "1"}
-    with patch.object(coordinator, "_schedule_reanalysis") as reanalyse:
+    with patch.object(coordinator, "schedule_reanalysis") as reanalyse:
         await coordinator.async_apply_recorder_changes(retention={"sensor.a": "1"})
     reanalyse.assert_called_once()
     assert coordinator.store.data.dismissed == {}
@@ -116,7 +116,7 @@ async def test_apply_clears_dismissal_and_reanalyses(hass: HomeAssistant) -> Non
     assert coordinator.store.data.history[-1]["action"] == "recorder_changes"
 
     with patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)):
-        coordinator._schedule_reanalysis()
+        coordinator.schedule_reanalysis()
         await hass.async_block_till_done()
     assert coordinator.store.data.db_samples
 
@@ -255,7 +255,7 @@ async def test_obsolete_and_purge(hass: HomeAssistant) -> None:
     with (
         patch.object(coord_mod.database, "async_purge", AsyncMock()) as purge,
         patch.object(coord_mod.database, "async_wait_idle", AsyncMock(return_value=True)),
-        patch.object(coordinator, "_schedule_reanalysis"),
+        patch.object(coordinator, "schedule_reanalysis"),
     ):
         result = await coordinator.async_clean(["purge"])
     purge.assert_awaited_once()

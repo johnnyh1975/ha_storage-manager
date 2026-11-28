@@ -79,7 +79,7 @@ async def test_undo_reverts_exclusion_but_not_later_choices(hass: HomeAssistant)
     await async_wait_recording_done(hass)
     await coordinator.async_run_analysis()
     coordinator.store.data.retention["sensor.b"] = "7"
-    with patch.object(coordinator, "_async_sync_package", AsyncMock(return_value=True)):
+    with patch.object(coordinator, "async_sync_package", AsyncMock(return_value=True)):
         result = await coordinator.async_apply_recorder_changes(
             retention={"sensor.b": "drop"}, excluded={"sensor.a": True}
         )

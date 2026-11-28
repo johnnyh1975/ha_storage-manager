@@ -8,6 +8,10 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { startServer } from "./harness.mjs";
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+
+const AXE = await readFile(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 
 const VIEWPORTS = {
   desktop: { width: 1100, height: 1000 },
@@ -32,7 +36,8 @@ after(async () => {
 });
 
 async function open(lang, viewport, query = "") {
-  const context = await browser.newContext({ viewport: VIEWPORTS[viewport], locale: lang });
+  // the phone is a touch screen: the panel's coarse-pointer sizes apply
+  const context = await browser.newContext({ viewport: VIEWPORTS[viewport], locale: lang, hasTouch: viewport === "phone" });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
@@ -51,7 +56,7 @@ async function noOverflow(page, where) {
     const limit = window.innerWidth + 1;
     const out = [];
     for (const el of root.querySelectorAll("*")) {
-      if (el.closest("nav.tabs")) continue;
+      if (el.closest("nav.tabs, nav.jumpbar")) continue;
       const box = el.getBoundingClientRect();
       if (box.width > 0 && box.right > limit) out.push(`${el.tagName.toLowerCase()}.${el.className}`);
     }
@@ -180,12 +185,166 @@ for (const lang of ["en", "de"]) {
         const { page, panel, errors, close } = await open(lang, viewport);
         try {
           await tab(page, panel, "database");
-          assert.ok(await panel.locator(".list-row .tag.warn").count(), "still recorded");
+          assert.equal(await panel.locator("#sec-events .list-row").count(), 0, "events start folded");
+          await panel.locator("nav.jumpbar button", { hasText: lang === "de" ? "Ereignisse" : "Events" }).click();
+          await panel.locator("#sec-events .list-row").first().waitFor();
+          assert.ok(await panel.locator("#sec-events .list-row .tag.warn").count(), "still recorded");
+          assert.equal(
+            await page.evaluate(() => document.querySelector("storage-manager-panel").shadowRoot.activeElement?.id),
+            "sec-events",
+            "the jump moves the focus to the section"
+          );
           assert.deepEqual(errors, []);
         } finally {
           await close();
         }
       });
+
+      if (viewport === "phone") {
+        test("buttons are big enough for a finger", async () => {
+          const { page, panel, errors, close } = await open(lang, viewport);
+          try {
+            for (const name of TABS) {
+              await tab(page, panel, name);
+              const small = await page.evaluate(() => {
+                const root = document.querySelector("storage-manager-panel").shadowRoot;
+                return [...root.querySelectorAll("main .btn, main .chip, main .fold-toggle, main .segmented button")]
+                  .filter((el) => el.offsetParent !== null && el.getBoundingClientRect().height < 44)
+                  .map((el) => `${el.className}: ${el.textContent.trim().slice(0, 30)}`)
+                  .slice(0, 5);
+              });
+              assert.deepEqual(small, [], `${name}: targets under 44 px`);
+            }
+            assert.deepEqual(errors, []);
+          } finally {
+            await close();
+          }
+        });
+      }
+
+      test("a new health problem opens the folded health card again", async () => {
+        const { page, panel, errors, close } = await open(lang, viewport);
+        try {
+          await tab(page, panel, "database");
+          const toggle = panel.locator("#sec-health .fold-toggle");
+          assert.equal(await toggle.getAttribute("aria-expanded"), "true", "open while a check needs a look");
+          await toggle.click();
+          assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+          await page.evaluate(() => {
+            const el = document.querySelector("storage-manager-panel");
+            const health = structuredClone(el._health);
+            health.database.checks.find((c) => c.key === "integrity").status = "error";
+            health.database.status = "error";
+            el._health = health;
+          });
+          await page.waitForTimeout(100);
+          assert.equal(await toggle.getAttribute("aria-expanded"), "true", "opens again for the new problem");
+          assert.deepEqual(errors, []);
+        } finally {
+          await close();
+        }
+      });
+
+      test("sections fold, and keep their state", async () => {
+        const { page, panel, errors, close } = await open(lang, viewport);
+        try {
+          await tab(page, panel, "database");
+          const toggle = panel.locator("#sec-dead .fold-toggle");
+          assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+          await toggle.click();
+          assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+          assert.ok(await panel.locator("#sec-dead-body").count(), "the body is there when open");
+          await tab(page, panel, "overview");
+          await tab(page, panel, "database");
+          assert.equal(await panel.locator("#sec-dead .fold-toggle").getAttribute("aria-expanded"), "true", "remembered");
+          assert.deepEqual(errors, []);
+        } finally {
+          await close();
+        }
+      });
+
+      test("numbers lead to their list", async () => {
+        const { page, panel, errors, close } = await open(lang, viewport);
+        try {
+          // overview: the orphans recommendation opens the list of orphans
+          const list = panel.locator(".rec .act button.btn", { hasText: lang === "de" ? "Liste" : "List" });
+          assert.ok(await list.count(), "a recommendation offers its list");
+          await list.first().click();
+          await panel.locator("#sec-entities table").waitFor();
+          const orphans = panel.locator(".chip", { hasText: lang === "de" ? "Nur verwaiste" : "Orphans only" });
+          assert.equal(await orphans.getAttribute("aria-pressed"), "true", "filtered to orphans");
+
+          // the size opens all entities, without the filter of the drill-down before
+          await panel.locator("button.kpi.link").first().click();
+          await page.waitForTimeout(300);
+          const views = panel.locator("#sec-entities .segmented button");
+          assert.equal(await views.nth(2).getAttribute("aria-selected"), "true", "database size opens all entities");
+          assert.equal(await orphans.getAttribute("aria-pressed"), "false", "earlier filters are cleared");
+
+          // the folded parts come before the long entity list
+          const order = await page.evaluate(() =>
+            [...document.querySelector("storage-manager-panel").shadowRoot.querySelectorAll("section.card")].map((x) => x.id)
+          );
+          assert.equal(order[order.length - 1], "sec-entities", `entity list last: ${order}`);
+          assert.deepEqual(errors, []);
+        } finally {
+          await close();
+        }
+      });
+
+      test("treemap and time window work with the keyboard", async () => {
+        const { page, panel, errors, close } = await open(lang, viewport);
+        try {
+          await tab(page, panel, "database");
+          await panel.locator("#sec-entities .segmented button").nth(1).click();
+          const area = panel.locator("svg.treemap g.tm").first();
+          await area.focus();
+          await page.keyboard.press("Enter");
+          await page.waitForTimeout(300);
+          assert.ok(await panel.locator(".filters.facets").count(), "Enter on an area opens its entities");
+          assert.equal(
+            await page.evaluate(() => document.querySelector("storage-manager-panel").shadowRoot.activeElement?.id),
+            "sec-entities",
+            "the focus stays in the list it opened"
+          );
+
+          await panel.locator(".window-bar button.chip").last().click();
+          const form = panel.locator("form.window-form");
+          await form.waitFor();
+          await form.locator('input[name="from"]').fill("2026-11-20T08:00");
+          await form.locator('input[name="to"]').fill("2026-11-21T08:00");
+          await form.locator('button[type="submit"]').click();
+          await panel.locator(".card.window-result").waitFor();
+          const call = await page.evaluate(() => window.__calls.filter((c) => c.type.endsWith("/writers")).pop());
+          assert.equal(call.end - call.start, 86400, "the range typed in is the range asked for");
+          assert.deepEqual(errors, []);
+        } finally {
+          await close();
+        }
+      });
+
+      for (const theme of ["light", "dark"]) {
+        test(`no serious accessibility findings (${theme} theme)`, async () => {
+          const { page, panel, errors, close } = await open(lang, viewport, `&theme=${theme}`);
+          try {
+            await page.addScriptTag({ content: AXE });
+            for (const name of TABS) {
+              await tab(page, panel, name);
+              const found = await page.evaluate(async () => {
+                const root = document.querySelector("storage-manager-panel");
+                const result = await window.axe.run(root, { resultTypes: ["violations"] });
+                return result.violations
+                  .filter((v) => v.impact === "serious" || v.impact === "critical")
+                  .map((v) => `${v.id} (${v.nodes.length}): ${v.nodes[0]?.target?.join(" ")}`);
+              });
+              assert.deepEqual(found, [], `${name}: axe`);
+            }
+            assert.deepEqual(errors, []);
+          } finally {
+            await close();
+          }
+        });
+      }
 
       test("undo shows what comes back", async () => {
         const { page, panel, errors, close } = await open(lang, viewport);

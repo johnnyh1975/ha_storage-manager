@@ -19,6 +19,12 @@ export const styles = css`
     --sm-c6: #8d6e63;
     --sm-c7: #78909c;
     --sm-free: var(--divider-color, rgba(127, 127, 127, 0.2));
+    /* a light box behind buttons: lighter than the divider, so text keeps its contrast */
+    --sm-box: color-mix(in srgb, var(--sm-free) 45%, transparent);
+    /* the theme's primary colour is often below 4.5:1 as text on cards;
+       mixed toward the text colour it passes in light and dark themes */
+    --sm-accent-text: color-mix(in srgb, var(--primary-color, #03a9f4) 65%, var(--primary-text-color, #212121));
+    --sm-accent-fill: color-mix(in srgb, var(--primary-color, #03a9f4) 78%, #000);
   }
   header {
     position: sticky;
@@ -82,6 +88,15 @@ export const styles = css`
   nav.tabs button[aria-selected="true"] {
     opacity: 1;
     border-bottom-color: currentColor;
+  }
+  /* more tabs beyond the edge: the row fades out there, so it is clearly scrollable */
+  nav.tabs[data-more="right"] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  nav.tabs[data-more="left"] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+  nav.tabs[data-more="both"] {
+    mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  }
+  @media (max-width: 560px) {
+    nav.tabs button { padding: 12px 12px; }
   }
   main {
     max-width: 1400px;
@@ -185,7 +200,7 @@ export const styles = css`
     height: 36px;
     border: 1px solid var(--divider-color);
     background: transparent;
-    color: var(--primary-color);
+    color: var(--sm-accent-text);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -193,14 +208,16 @@ export const styles = css`
     white-space: nowrap;
   }
   .btn.primary {
-    background: var(--primary-color);
-    border-color: var(--primary-color);
-    color: var(--text-primary-color, #fff);
+    background: var(--sm-accent-fill);
+    border-color: var(--sm-accent-fill);
+    color: #fff;
   }
-  .btn.danger { color: var(--error-color, #db4437); }
+  /* the theme's red alone has 4.3:1 on white; mixed toward the text colour it
+     passes 4.5:1 in light and dark themes, and white text on the darker red too */
+  .btn.danger { color: color-mix(in srgb, var(--error-color, #db4437) 78%, var(--primary-text-color, #212121)); }
   .btn.primary.danger {
-    background: var(--error-color, #db4437);
-    border-color: var(--error-color, #db4437);
+    background: color-mix(in srgb, var(--error-color, #db4437) 82%, #000);
+    border-color: color-mix(in srgb, var(--error-color, #db4437) 82%, #000);
     color: #fff;
   }
   .btn[disabled] { opacity: 0.45; cursor: default; }
@@ -212,6 +229,85 @@ export const styles = css`
     gap: 12px;
   }
   .kpi .v { font-size: 22px; font-weight: 400; }
+  button.kpi {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    padding: 4px 6px;
+    margin: -4px -6px;
+    cursor: pointer;
+  }
+  button.kpi:hover { background: rgba(127, 127, 127, 0.1); }
+  button.kpi:hover .v { color: var(--sm-accent-text); }
+  /* jump bar and folding sections of the Database tab */
+  .jumpbar {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 0 4px;
+    scrollbar-width: thin;
+  }
+  .jumpbar .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+  .jumpbar .count {
+    font-size: 12px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--sm-free);
+    color: var(--primary-text-color);
+  }
+  .jumpbar .count.warn { background: color-mix(in srgb, var(--warning-color, #ffa600) 30%, transparent); }
+  .jumpbar .count.bad { background: color-mix(in srgb, var(--error-color, #db4437) 28%, transparent); }
+  /* wide screens: all parts at a glance; phones: one row that fades where more is */
+  @media (min-width: 600px) {
+    .jumpbar { flex-wrap: wrap; overflow: visible; }
+  }
+  .jumpbar[data-more="right"] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  .jumpbar[data-more="left"] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+  .jumpbar[data-more="both"] {
+    mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  }
+  @keyframes landed {
+    from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 55%, transparent); }
+    to { box-shadow: 0 0 0 3px transparent; }
+  }
+  section.card.landed { animation: landed 1.6s ease-out; }
+  button.kpi .go { margin-left: 6px; color: var(--sm-accent-text); font-weight: 500; }
+  section.card { scroll-margin-top: calc(var(--header-height, 56px) + 72px); }
+  section.card:focus { outline: none; }
+  section.card:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+  .fold-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .fold-head .spacer { flex: 1; }
+  h2.fold-title { margin: 0; }
+  .fold-toggle {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 4px 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-align: left;
+  }
+  .fold-toggle .chev { width: 1em; color: var(--secondary-text-color); }
+  .fold-toggle:hover { color: var(--sm-accent-text); }
+  section.card > .fold-head:last-child { margin-bottom: 0; }
+  /* fingers need bigger targets than a mouse pointer */
+  @media (pointer: coarse) {
+    .btn, .chip, select, input[type="search"] { min-height: 44px; }
+    .chip { border-radius: 22px; }
+    .fold-toggle, .group-toggle, .dead-actions .linklike, ul.group-members .linklike, nav.tabs button,
+    .segmented button, .window-form input { min-height: 44px; }
+    /* links inside text and tables keep their line; their hit area grows invisibly */
+    .linklike { position: relative; }
+    .linklike::after { content: ""; position: absolute; inset: -14px -6px; }
+    input[type="checkbox"] { width: 22px; height: 22px; }
+    .check-line { min-height: 44px; align-items: center; }
+  }
   .kpi .l { font-size: 12px; color: var(--secondary-text-color); }
   .banner {
     display: flex;
@@ -259,7 +355,7 @@ export const styles = css`
   .chip[aria-pressed="true"] {
     background: color-mix(in srgb, var(--primary-color) 16%, transparent);
     border-color: var(--primary-color);
-    color: var(--primary-color);
+    color: var(--sm-accent-text);
   }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th {
@@ -279,16 +375,32 @@ export const styles = css`
   .sizebar { height: 4px; border-radius: 2px; background: var(--sm-c1); margin: 4px 0 0 auto; opacity: 0.7; }
   .tag {
     display: inline-block;
-    font-size: 11px;
+    font-size: 12px;
     padding: 1px 8px;
     border-radius: 10px;
     background: var(--sm-free);
-    color: var(--secondary-text-color);
+    color: var(--primary-text-color);
     margin-left: 4px;
     white-space: nowrap;
   }
   .tag.warn { background: color-mix(in srgb, var(--warning-color, #ffa600) 22%, transparent); color: var(--primary-text-color); }
   .tag.ok { background: color-mix(in srgb, var(--success-color, #43a047) 22%, transparent); color: var(--primary-text-color); }
+  .tag.live { background: color-mix(in srgb, var(--info-color, #039be5) 18%, transparent); color: var(--primary-text-color); }
+  .source-line { margin: 6px 0 16px; }
+  .window-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin-top: 8px; }
+  .window-form label { display: grid; gap: 4px; font-size: 12px; color: var(--secondary-text-color); }
+  .window-form input {
+    font: inherit;
+    font-size: 14px;
+    height: 36px;
+    padding: 0 8px;
+    border-radius: 8px;
+    border: 1px solid var(--divider-color);
+    background: var(--card-background-color, #fff);
+    color: var(--primary-text-color);
+  }
+  svg.treemap g.tm:focus { outline: none; }
+  svg.treemap g.tm:focus-visible rect { stroke: var(--primary-text-color); stroke-width: 3; }
   .tag.bad { background: color-mix(in srgb, var(--error-color, #db4437) 20%, transparent); color: var(--primary-text-color); }
   @media (max-width: 700px) {
     table.responsive thead { display: none; }
@@ -405,10 +517,10 @@ export const styles = css`
     text-align: left;
     cursor: pointer;
   }
-  .linklike:hover { color: var(--primary-color); text-decoration: underline; }
+  .linklike:hover { color: var(--sm-accent-text); text-decoration: underline; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .chips .tag { margin-left: 0; }
-  .tagbtn { border: none; cursor: pointer; font: inherit; font-size: 11px; }
+  .tagbtn { border: none; cursor: pointer; font: inherit; font-size: 12px; }
   .rec.conflict .ico {
     background: color-mix(in srgb, var(--warning-color, #ffa600) 18%, transparent);
     color: var(--warning-color, #ffa600);
@@ -434,8 +546,8 @@ export const styles = css`
   svg.treemap { width: 100%; height: auto; display: block; margin-bottom: 4px; }
   svg.treemap .tm { cursor: pointer; }
   svg.treemap .tm:hover rect { opacity: 0.85; }
-  svg.treemap .tm-label { font-size: 12px; font-weight: 600; fill: #fff; pointer-events: none; }
-  svg.treemap .tm-sub { font-size: 11px; fill: #fff; opacity: 0.9; pointer-events: none; }
+  svg.treemap .tm-label { font-size: 12px; font-weight: 600; pointer-events: none; }
+  svg.treemap .tm-sub { font-size: 12px; pointer-events: none; }
   ul.changes { max-height: 220px; overflow: auto; margin: 4px 0 8px; padding-left: 18px; font-size: 14px; }
   .segmented {
     display: inline-flex;
@@ -456,7 +568,7 @@ export const styles = css`
   .segmented button + button { border-left: 1px solid var(--divider-color); }
   .segmented button[aria-selected="true"] {
     background: color-mix(in srgb, var(--primary-color) 16%, transparent);
-    color: var(--primary-color);
+    color: var(--sm-accent-text);
     font-weight: 500;
   }
   .restline {
@@ -467,7 +579,7 @@ export const styles = css`
     padding: 12px;
     margin-top: 8px;
     border-radius: 8px;
-    background: var(--sm-free);
+    background: var(--sm-box);
     font-size: 13px;
     color: var(--secondary-text-color);
   }
@@ -497,6 +609,7 @@ export const styles = css`
   .sheet-head > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .sheet-head h3 { margin: 0; font-size: 20px; font-weight: 400; }
   .sheet h4 { margin: 18px 0 8px; font-size: 13px; font-weight: 500; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.04em; }
+  .sheet h4 .tag { text-transform: none; letter-spacing: normal; font-weight: 400; vertical-align: 1px; }
   .spark { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
   .spark > div { flex: 1; background: var(--sm-c1); opacity: 0.55; border-radius: 2px 2px 0 0; min-height: 0; }
   .spark > div.today { opacity: 1; }
@@ -506,7 +619,7 @@ export const styles = css`
   table.noselect td.c-ent { padding-left: 0; }
   .sheet select { width: 100%; }
   .attr .spacer { flex: 1; }
-  .obsolete { margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--sm-free); }
+  .obsolete { margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--sm-box); }
   h4.sub { margin: 16px 0 8px; font-size: 13px; font-weight: 500; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.04em; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
   .field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }

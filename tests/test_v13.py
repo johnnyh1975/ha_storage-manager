@@ -98,7 +98,7 @@ async def test_plan_rules(hass: HomeAssistant, hass_ws_client) -> None:
         await coordinator.async_clean(["orphans"], plan_id=plan_id)
     # a blocked safety chain keeps the plan for the retry
     blocked = AsyncMock(side_effect=safety.SafetyError("no_space", "1"))
-    with patch.object(coordinator, "_async_safety", blocked):
+    with patch.object(coordinator, "async_safety", blocked):
         result = await coordinator.async_clean(["events"], plan_id=plan_id)
     assert result["blocked"]["reason"] == "no_space"
     assert plan_id in coordinator.cleanup._plans
@@ -134,11 +134,11 @@ async def test_selection_from_a_plan(hass: HomeAssistant) -> None:
     unused = AsyncMock(return_value=[{"statistic_id": "sensor.u", "bytes": 5, "kind": "imported"}])
     dead = AsyncMock(return_value=[{"entity_id": "sensor.d", "bytes": 7}])
     with (
-        patch.object(coordinator, "_unused_selection", unused),
-        patch.object(coordinator, "_dead_selection", dead),
+        patch.object(coordinator, "async_unused_selection", unused),
+        patch.object(coordinator, "async_dead_selection", dead),
         patch.object(
             coordinator,
-            "_events_selection",
+            "events_selection",
             return_value=[{"event_type": "e", "est_bytes": 3, "rows": 1}],
         ),
         patch.object(

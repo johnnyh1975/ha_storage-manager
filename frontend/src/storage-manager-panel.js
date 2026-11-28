@@ -40,6 +40,17 @@ const REC_ICONS = {
   retention: "mdi:calendar-clock",
 };
 
+// overview recommendations that open a part of the Database tab, prepared
+const REC_JUMPS = {
+  retention: { key: "inbox" },
+  top_entities: { key: "entities", opts: { view: "top", orphans: false } },
+  orphans: { key: "entities", opts: { view: "all", orphans: true } },
+  unused_statistics: { key: "unused" },
+  dead_entities: { key: "dead" },
+  system_log_events: { key: "events" },
+  system_log_rows: { key: "events" },
+};
+
 const svgIcon = (path) => html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
   <path fill="currentColor" d=${path}></path></svg>`;
 const MENU = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
@@ -55,6 +66,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _whatif: { state: true },
     _unused: { state: true },
     _unusedOpen: { state: true },
+    _folds: { state: true },
     _dead: { state: true },
     _deadSel: { state: true },
     _tpl: { state: true },
@@ -66,6 +78,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     _raw: { state: true },
     _win: { state: true },
     _winDrag: { state: true },
+    _winCustom: { state: true },
     _facets: { state: true },
     _facetsOpen: { state: true },
     _folder: { state: true },
@@ -125,6 +138,11 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       if (TABS.includes(hash) && hash !== this._tab) this._setTab(hash, false);
     };
     window.addEventListener("hashchange", this._hashListener);
+    this._resizeListener = () => {
+      this._tabsEdge();
+      this._edge(this.renderRoot?.querySelector("nav.jumpbar"));
+    };
+    window.addEventListener("resize", this._resizeListener);
     // Escape closes the open dialog, then the detail sheet, wherever the focus is
     this._keyListener = (e) => {
       if (e.key === "Tab") {
@@ -143,6 +161,7 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener("hashchange", this._hashListener);
+    window.removeEventListener("resize", this._resizeListener);
     this.removeEventListener("keydown", this._keyListener);
     this._unsubscribe?.then((unsub) => unsub()).catch(() => {});
     this._unsubscribe = undefined;
@@ -159,7 +178,9 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
         const left = active.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
         nav.scrollLeft = Math.max(0, left - (nav.clientWidth - active.offsetWidth) / 2);
       }
+      this._tabsEdge();
     }
+    this._edge(this.renderRoot?.querySelector("nav.jumpbar"));
     if (changed.has("hass") && this.hass && !this._started) {
       this._started = true;
       this._loadOverview();
@@ -188,6 +209,10 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       e.preventDefault();
       first.focus();
     }
+  }
+
+  _tabsEdge() {
+    this._edge(this.renderRoot?.querySelector("nav.tabs"));
   }
 
   _manageFocus(changed, key, selector) {
@@ -675,13 +700,13 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       <header>
         <div class="toolbar">
           ${this.narrow
-            ? html`<button class="icon-btn" @click=${this._toggleMenu} aria-label="menu">${svgIcon(MENU)}</button>`
+            ? html`<button class="icon-btn" @click=${this._toggleMenu} aria-label=${t("menu_label")}>${svgIcon(MENU)}</button>`
             : nothing}
           <div class="title">${t("title")}</div>
           <button class="icon-btn" title=${t("refresh")} aria-label=${t("refresh")}
             ?disabled=${!!this._working} @click=${this._refreshAll}>${svgIcon(REFRESH)}</button>
         </div>
-        <nav class="tabs" role="tablist">
+        <nav class="tabs" role="tablist" @scroll=${this._tabsEdge}>
           ${TABS.map(
             (tab) => html`<button role="tab" aria-selected=${tab === this._tab ? "true" : "false"}
               @click=${() => this._setTab(tab)}>${t(`tab_${tab}`)}</button>`
@@ -855,6 +880,8 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
     const title = t(`rec_${r.id}`, vars);
     const desc = t(`rec_${r.id}_desc`, vars);
     const busy = !!this._working;
+    const jump = REC_JUMPS[r.id];
+    const go = jump ? () => this._goTo(jump.key, jump.opts) : null;
     return html`<div class="rec">
       <div class="ico"><ha-icon icon=${REC_ICONS[r.id] || "mdi:broom"}></ha-icon></div>
       <div>
@@ -863,9 +890,10 @@ class StorageManagerPanel extends HealthSection(DatabaseSection(LitElement)) {
       </div>
       <div class="act row">
         ${r.bytes ? html`<span class="amount">${bytes(r.bytes, this.lang)}</span>` : nothing}
+        ${r.action === "clean" && go ? html`<button class="btn" @click=${go}>${t("rec_show_list")}</button>` : nothing}
         ${r.action === "clean"
           ? html`<button class="btn" ?disabled=${busy} @click=${() => this._previewAndClean(r.targets)}>${t("preview")}</button>`
-          : html`<button class="btn" @click=${() => (r.url ? this._navigate(r.url) : this._setTab(r.view))}>${t("open")}</button>`}
+          : html`<button class="btn" @click=${() => (r.url ? this._navigate(r.url) : go ? go() : this._setTab(r.view))}>${t("open")}</button>`}
       </div>
     </div>`;
   }

@@ -16,6 +16,16 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <style>body{margin:0;font-family:sans-serif}</style></head><body>
 <script type="module">
 const params = new URLSearchParams(location.search);
+// Home Assistant's default themes, for the colour contrast check
+const THEMES = {
+  light: "--primary-color:#009ac7;--primary-text-color:#141414;--secondary-text-color:#5e5e5e;--card-background-color:#fff;--primary-background-color:#fafafa;--divider-color:rgba(0,0,0,.12);--error-color:#db4437;--warning-color:#ffa600;--success-color:#43a047;--info-color:#039be5;--text-primary-color:#fff;--app-header-background-color:#fff;--app-header-text-color:#141414",
+  dark: "--primary-color:#009ac7;--primary-text-color:#e1e1e1;--secondary-text-color:#9b9b9b;--card-background-color:#1c1c1c;--primary-background-color:#111111;--divider-color:rgba(225,225,225,.12);--error-color:#db4437;--warning-color:#ffa600;--success-color:#43a047;--info-color:#039be5;--text-primary-color:#fff;--app-header-background-color:#101e24;--app-header-text-color:#e1e1e1",
+};
+if (THEMES[params.get("theme")]) {
+  const style = document.createElement("style");
+  style.textContent = "storage-manager-panel{" + THEMES[params.get("theme")] + "}";
+  document.head.appendChild(style);
+}
 const lang = params.get("lang") || "en";
 const fixtures = await (await fetch("/fixtures.json")).json();
 // the recorded instance sets some recorder keys in YAML; a test can lift that

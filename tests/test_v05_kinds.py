@@ -282,7 +282,7 @@ async def test_auto_respects_usage_and_registry(hass: HomeAssistant) -> None:
     with (
         patch.object(coordinator, "async_usage", return_value=usage),
         patch.object(type(coordinator.packages), "available", True),
-        patch.object(coordinator, "_async_sync_package", return_value=True),
+        patch.object(coordinator, "async_sync_package", return_value=True),
     ):
         applied = await coordinator.async_apply_kind_auto()
     assert applied == [plain.entity_id]

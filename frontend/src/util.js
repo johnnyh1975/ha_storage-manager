@@ -6,6 +6,22 @@ import { number } from "./format.js";
 
 export const TM_COLORS = ["#4f9bd9", "#f0a04b", "#5db36b", "#d9667a", "#9a7bd1", "#3fb7b0", "#c2b74a", "#8d99a6"];
 
+// WCAG contrast of two #rrggbb colours
+export function contrast(a, b) {
+  const lum = (hex) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const [r, g, bl] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// the text colour that reads best on a filled area
+export function readableOn(fill) {
+  return contrast(fill, "#ffffff") >= contrast(fill, "#1f1f1f") ? "#ffffff" : "#1f1f1f";
+}
+
 // squarified treemap (Bruls et al.): rows of rectangles with good aspect ratios
 export function squarify(items, x, y, w, h) {
   const total = items.reduce((a, i) => a + i.v, 0);

@@ -381,7 +381,7 @@ async def test_effect_samples_and_markers(hass: HomeAssistant, hass_ws_client) -
     )
     assert not _changes_database({"action": "statistics_off_unknown"})
 
-    with patch.object(coordinator, "_schedule_reanalysis") as again:
+    with patch.object(coordinator, "schedule_reanalysis") as again:
         await coordinator.async_clean(["orphans"])
     again.assert_called_once()
 

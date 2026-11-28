@@ -94,7 +94,7 @@ class UndoService:
         except Exception:
             _LOGGER.exception("Targeted backup failed, using the full backup")
         if self._c.options[CONF_BACKUP_BEFORE_DELETE] and not skip_backup:
-            self._c._set_busy("safety_backup")
+            self._c.set_busy("safety_backup")
             backup = await safety.async_recent_backup(self._c.hass)
             if backup is None:
                 # the safety chain checked the space without a backup: check
@@ -103,7 +103,7 @@ class UndoService:
                     self._c.hass, int(self._c.data["database"]["size"] or 0)
                 )
                 need = safety.space_needed(
-                    live_bytes=self._c._live_bytes(), delete_bytes=delete_bytes, backup_bytes=size
+                    live_bytes=self._c.live_bytes(), delete_bytes=delete_bytes, backup_bytes=size
                 )
                 free = int(self._c.data["disk"]["free"])
                 if free < need:
@@ -117,12 +117,12 @@ class UndoService:
         config_dir = hass.config.config_dir
         # the safety chain has just refreshed the numbers
         free = int(self._c.data["disk"]["free"])
-        need = safety.work_space(self._c._live_bytes(), delete_bytes) + (
+        need = safety.work_space(self._c.live_bytes(), delete_bytes) + (
             delete_bytes // 2 + UNDO_SPACE_MARGIN
         )
         if free < need:
             raise undo.UndoError("no_space", str(need))
-        self._c._set_busy("undo_export")
+        self._c.set_busy("undo_export")
         rows = int(await database.async_read(hass, lambda s: undo.count(s, spec)))
         if rows > undo.MAX_ROWS:
             raise undo.UndoError("too_many", str(rows))
@@ -211,7 +211,7 @@ class UndoService:
             raise HomeAssistantError("undo_schema")
         if preview["free"] < preview["need"]:
             raise HomeAssistantError("undo_no_space")
-        if self._c._lock.locked():
+        if self._c.lock.locked():
             raise HomeAssistantError("Another cleanup is running")
         path = undo.path_for(self._c.hass.config.config_dir, undo_id)
         result: dict[str, Any] = {}
@@ -220,14 +220,14 @@ class UndoService:
             result.update(database.run_write(instance, lambda s: undo.restore(s, path)))
             undo.reset_caches(instance)
 
-        async with self._c._lock:
-            self._c._set_busy("undo")
+        async with self._c.lock:
+            self._c.set_busy("undo")
             await self._c.store.async_mark_running("undo", {"undo_id": undo_id})
             try:
                 if not await async_run_on_recorder(self._c.hass, job):  # pragma: no cover
                     raise HomeAssistantError("undo_unavailable")
             finally:
-                self._c._set_busy(None)
+                self._c.set_busy(None)
                 await self._c.store.async_clear_running()
         if preview["enable"]:
             await self._c.async_enable_dead(preview["enable"])
@@ -251,7 +251,7 @@ class UndoService:
             data = self._c.store.data
             data.freed_total = max(data.freed_total - int(entry.get("freed_bytes") or 0), 0)
         self._c.store.log("undo", 0, {"undo_id": undo_id, **result})
-        self._c._schedule_reanalysis()
+        self._c.schedule_reanalysis()
         self._c.invalidate("breakdown")
         await self._c.async_refresh()
         return {
@@ -273,5 +273,5 @@ class UndoService:
                 data.retention[entity_id] = tier
         data.excluded = sorted(set(data.excluded) - set(include))
         self._c.store.schedule_save()
-        await self._c._async_sync_package()
-        self._c._usage_at = 0.0
+        await self._c.async_sync_package()
+        self._c.invalidate_usage()

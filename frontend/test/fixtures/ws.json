@@ -2171,7 +2171,7 @@
     "excluded": false,
     "excluded_by_yaml": false,
     "integration": "storage_manager",
-    "name": "Storage Manager Datenbankgr\u00f6\u00dfe",
+    "name": "Storage Manager Datenbankgröße",
     "newest": null,
     "oldest": 1794597829.0482404,
     "orphan": false,
@@ -2955,7 +2955,7 @@
     "excluded": false,
     "excluded_by_yaml": false,
     "integration": "backup",
-    "name": "Backup N\u00e4chstes geplantes automatisches Backup",
+    "name": "Backup Nächstes geplantes automatisches Backup",
     "newest": null,
     "oldest": 1794597807.4627044,
     "orphan": false,
@@ -2996,7 +2996,7 @@
     "area": null,
     "attr_only": 0,
     "defined_in": "ui",
-    "device": "Google \u00dcbersetzer en com",
+    "device": "Google Übersetzer en com",
     "domain": "tts",
     "entity_id": "tts.google_ubersetzer_en_com_google_translate_en_com",
     "est_bytes": 6154,
@@ -3004,7 +3004,7 @@
     "excluded": false,
     "excluded_by_yaml": false,
     "integration": "google_translate",
-    "name": "Google \u00dcbersetzer en com Google Translate en com",
+    "name": "Google Übersetzer en com Google Translate en com",
     "newest": null,
     "oldest": 1794597833.7170744,
     "orphan": false,
@@ -3151,7 +3151,7 @@
     "excluded": false,
     "excluded_by_yaml": false,
     "integration": "storage_manager",
-    "name": "Storage Manager Sicher aufr\u00e4umen",
+    "name": "Storage Manager Sicher aufräumen",
     "newest": null,
     "oldest": 1794597829.0577412,
     "orphan": false,
@@ -3756,7 +3756,8 @@
    "scripts": [],
    "statistics_cards": [],
    "yaml": []
-  }
+  },
+  "analysis_at": 1795846809.9659796
  },
  "folder_roots": {
   "roots": [
@@ -5121,7 +5122,7 @@
    {
     "bytes": 5024,
     "entity_id": "sensor.storage_manager_datenbankgrosse",
-    "name": "Storage Manager Datenbankgr\u00f6\u00dfe",
+    "name": "Storage Manager Datenbankgröße",
     "rows": 28
    },
    {
@@ -5205,7 +5206,7 @@
    {
     "bytes": 1051,
     "entity_id": "button.storage_manager_sicher_aufraumen",
-    "name": "Storage Manager Sicher aufr\u00e4umen",
+    "name": "Storage Manager Sicher aufräumen",
     "rows": 6
    },
    {
@@ -5235,7 +5236,7 @@
    {
     "bytes": 1059,
     "entity_id": "sensor.backup_nachstes_geplantes_automatisches_backup",
-    "name": "Backup N\u00e4chstes geplantes automatisches Backup",
+    "name": "Backup Nächstes geplantes automatisches Backup",
     "rows": 6
    },
    {
